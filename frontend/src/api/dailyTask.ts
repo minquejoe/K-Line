@@ -63,4 +63,24 @@ export const dailyTaskAPI = {
     const response = await apiClient.post('/api/admin/daily-task/toggle-email', { enabled })
     return response.data
   },
+
+  optimizeAggregation: async (stockCode: string, strategyNames?: string[]): Promise<any> => {
+    const response = await apiClient.post('/api/admin/daily-task/optimize-aggregation', {
+      stock_code: stockCode, strategy_names: strategyNames,
+    })
+    return response.data
+  },
+
+  getBounds: async (stockCode: string): Promise<any> => {
+    const response = await apiClient.get(`/api/admin/daily-task/bounds/${stockCode}`)
+    return response.data
+  },
+
+  saveBounds: async (stockCode: string, aggregationBounds: Record<string, number[]>, strategyBounds: Record<string, Record<string, number[]>>): Promise<any> => {
+    const response = await apiClient.put(`/api/admin/daily-task/bounds/${stockCode}`, {
+      aggregation_bounds: aggregationBounds,
+      strategy_bounds: strategyBounds,
+    })
+    return response.data
+  },
 }

@@ -977,3 +977,96 @@ class SQLiteStorage(DataStorage):
             return []
         finally:
             conn.close()
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        """列出所有用户"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    email TEXT,
+                    role TEXT DEFAULT 'user',
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT
+                )
+            """)
+            cursor.execute("SELECT id, username,mail, role, is_active, created_at FROM users ORDER BY id")
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"列出用户失败: {e}", exc_info=True)
+            return []
+        finally:
+            conn.close()
+
+    def get_watchlist(self, user_id: int) -> List[Dict[str, Any]]:
+        """获取用户自选股列表"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC", (user_id,))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"获取自选股失败: {e}", exc_info=True)
+            return []
+        finally:
+            conn.close()
+
+    # ==================== 优化参数边界 ====================
+
+    def _init_bounds_table(self, cursor):
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS optimization_bounds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stock_code TEXT NOT NULL UNIQUE,
+                aggregation_bounds TEXT NOT NULL DEFAULT '{}',
+                strategy_bounds TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+    def save_bounds(self, stock_code: str, aggregation_bounds: dict, strategy_bounds: dict) -> bool:
+        """保存某只股票的参数边界配置"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            self._init_bounds_table(cursor)
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(
+                "INSERT OR REPLACE INTO optimization_bounds (stock_code, aggregation_bounds, strategy_bounds, updated_at) VALUES (?,?,?,?)",
+                (stock_code, json.dumps(aggregation_bounds), json.dumps(strategy_bounds), now),
+            )
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"保存边界失败: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def get_bounds(self, stock_code: str) -> Optional[dict]:
+        """获取某只股票的参数边界配置"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            self._init_bounds_table(cursor)
+            cursor.execute("SELECT * FROM optimization_bounds WHERE stock_code = ?", (stock_code,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "stock_code": row["stock_code"],
+                    "aggregation_bounds": json.loads(row["aggregation_bounds"]),
+                    "strategy_bounds": json.loads(row["strategy_bounds"]),
+                    "updated_at": row["updated_at"],
+                }
+            return None
+        except Exception as e:
+            logger.error(f"获取边界失败: {e}")
+            return None
+        finally:
+            conn.close()

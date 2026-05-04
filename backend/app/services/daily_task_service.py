@@ -9,8 +9,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Dict, List, Any
+from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -106,6 +106,21 @@ class DailyTaskService:
 
             logger.info(f"步骤3: 发现 {len(buy_signals)} 个买入信号")
 
+            # 3.5 保存聚合方案
+            logger.info("步骤3.5: 保存聚合方案...")
+            saved_count = 0
+            for r in results:
+                if r.weight_result and not r.weight_result.error:
+                    sid = self.batch_optimizer.save_aggregation_scheme(
+                        stock_code=r.stock_code,
+                        stock_name=r.stock_name,
+                        param_results=r.param_results,
+                        weight_result=r.weight_result,
+                    )
+                    if sid:
+                        saved_count += 1
+            logger.info(f"已保存 {saved_count} 个聚合方案")
+
             # 4. 发送邮件（受开关控制）
             if self._enable_email:
                 logger.info("步骤4: 发送邮件...")
@@ -187,8 +202,92 @@ class DailyTaskService:
         }
 
     async def trigger_manual(self) -> Dict[str, Any]:
-        """手动触发"""
+        """手动触发每日完整任务"""
         return await self.run_daily()
+
+    async def optimize_aggregation(
+        self, stock_code: str, strategy_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        手动对单只股票跑聚合优化（参数+权重+阈值优化+保存方案）
+        """
+        self._is_running = True
+        start_time = datetime.now()
+        try:
+            data = self.batch_optimizer.data_service.get_kline_data(
+                stock_code,
+                (datetime.now() - timedelta(days=186)).strftime("%Y%m%d"),
+                datetime.now().strftime("%Y%m%d"),
+            )
+            if data.empty:
+                self._is_running = False
+                return {"status": "failed", "error": "无K线数据"}
+
+            param_results = self.batch_optimizer._optimize_all_strategies(
+                data, stock_code, strategy_names or self.batch_optimizer.strategy_manager.list_strategies()
+            )
+            active = [r for r in param_results if r.error is None]
+            if len(active) < 2:
+                self._is_running = False
+                return {"status": "failed", "error": "有效策略不足2个"}
+
+            weight_result = self.batch_optimizer._optimize_weights(data, active, stock_code)
+            self.batch_optimizer._save_results(stock_code, param_results, weight_result)
+
+            stock_name = self.batch_optimizer.data_service.get_stock_name(stock_code) or ""
+            scheme_id = self.batch_optimizer.save_aggregation_scheme(
+                stock_code, stock_name, param_results, weight_result
+            )
+
+            elapsed = (datetime.now() - start_time).total_seconds()
+            self._is_running = False
+            return {
+                "status": "success", "stock_code": stock_code,
+                "strategies_n": len(active), "weights": weight_result.weights,
+                "buy_threshold": weight_result.buy_threshold,
+                "sell_threshold": weight_result.sell_threshold,
+                "best_sharpe": weight_result.best_sharpe,
+                "scheme_id": scheme_id, "elapsed_seconds": elapsed,
+            }
+        except Exception as e:
+            logger.error(f"手动聚合优化失败: {e}", exc_info=True)
+            self._is_running = False
+            return {"status": "failed", "error": str(e)}
+
+    # ────────── 参数边界 ──────────
+
+    def get_bounds(self, stock_code: str) -> dict:
+        """获取某只股票的参数边界，无配置时返回系统默认"""
+        stored = self.storage.get_bounds(stock_code)
+        if stored:
+            return stored
+
+        # 系统默认值
+        default_agg = {"buy_threshold": [0.3, 0.7], "sell_threshold": [0.2, 0.6]}
+        default_strategies = {}
+        for name in self.batch_optimizer.strategy_manager.list_strategies():
+            s = self.batch_optimizer.strategy_manager.get_strategy(name)
+            if s:
+                bounds = s.get_param_bounds()
+                if bounds:
+                    default_strategies[name] = {k: list(v[:2]) for k, v in bounds.items()}
+        return {
+            "stock_code": stock_code,
+            "aggregation_bounds": default_agg,
+            "strategy_bounds": default_strategies,
+            "updated_at": None,
+        }
+
+    def save_bounds(self, stock_code: str, aggregation_bounds: dict, strategy_bounds: dict) -> bool:
+        """保存参数边界配置"""
+        return self.storage.save_bounds(stock_code, aggregation_bounds, strategy_bounds)
+
+    def _load_custom_bounds(self, stock_code: str) -> Optional[dict]:
+        """加载自定义边界（内部使用），无配置返回None"""
+        stored = self.storage.get_bounds(stock_code)
+        if stored and stored.get("aggregation_bounds"):
+            return stored
+        return None
 
 
 import os

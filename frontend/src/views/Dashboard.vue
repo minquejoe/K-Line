@@ -152,7 +152,7 @@
             </button>
             <button class="action-btn" @click="router.push('/strategy/custom')">
               <span class="action-icon" style="background:#f4f4f5;color:#909399"><el-icon :size="22"><Setting /></el-icon></span>
-              <span>自定义策略</span>
+              <span>自定策略</span>
             </button>
             <button v-if="isAdmin" class="action-btn" @click="router.push('/settings/users')">
               <span class="action-icon" style="background:#fdf6ec;color:#e6a23c"><el-icon :size="22"><User /></el-icon></span>

@@ -1047,8 +1047,14 @@ const loadScheme = (scheme: AggregationScheme) => {
   aggregationSettings.buy_threshold = scheme.buy_threshold
   aggregationSettings.sell_threshold = scheme.sell_threshold
   aggregationSettings.required_strategies = scheme.required_strategies
-  
-  // 4. Ensure param descriptions are loaded for display
+
+  // 4. Auto-select stock code（加载聚合方案时自动选中股票）
+  if (scheme.stock_code) {
+    aggregationForm.stock_code = scheme.stock_code
+    handleStockChange(scheme.stock_code)
+  }
+
+  // 5. Ensure param descriptions are loaded for display
   scheme.strategies.forEach(s => {
     if (!strategyParamDescsMap[s.name]) {
       loadStrategyParams(s.name) 

@@ -903,3 +903,42 @@ class PostgresStorage(DataStorage):
         except Exception as e:
             logger.error(f"PostgreSQL 健康检查失败: {e}")
             return False
+
+    # ───────────────────── 优化参数边界 ─────────────────────
+
+    def save_bounds(self, stock_code: str, aggregation_bounds: dict, strategy_bounds: dict) -> bool:
+        """保存某只股票的参数边界配置"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._get_connection() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS optimization_bounds (
+                    id SERIAL PRIMARY KEY,
+                    stock_code VARCHAR(10) NOT NULL UNIQUE,
+                    aggregation_bounds TEXT NOT NULL DEFAULT '{}',
+                    strategy_bounds TEXT NOT NULL DEFAULT '{}',
+                    updated_at VARCHAR(20) NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO optimization_bounds (stock_code, aggregation_bounds, strategy_bounds, updated_at)
+                VALUES (:code, :agg, :str, :now)
+                ON CONFLICT (stock_code) DO UPDATE SET
+                    aggregation_bounds = EXCLUDED.aggregation_bounds,
+                    strategy_bounds = EXCLUDED.strategy_bounds,
+                    updated_at = EXCLUDED.updated_at
+            """), {"code": stock_code, "agg": json.dumps(aggregation_bounds), "str": json.dumps(strategy_bounds), "now": now})
+            conn.commit()
+        return True
+
+    def get_bounds(self, stock_code: str) -> Optional[dict]:
+        """获取某只股票的参数边界配置"""
+        with self._get_connection() as conn:
+            row = conn.execute(text(
+                "SELECT * FROM optimization_bounds WHERE stock_code = :code"
+            ), {"code": stock_code}).fetchone()
+            if row:
+                d = dict(row._mapping)
+                d["aggregation_bounds"] = json.loads(d["aggregation_bounds"])
+                d["strategy_bounds"] = json.loads(d["strategy_bounds"])
+                return d
+            return None

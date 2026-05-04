@@ -73,17 +73,14 @@
         <div class="config-item">
           <span class="label">定时执行</span>
           <span class="value">{{ fmtTime }}</span>
-          <span class="hint">每日</span>
         </div>
         <div class="config-item">
           <span class="label">优化周期</span>
           <span class="value">6 个月</span>
-          <span class="hint">回溯数据</span>
         </div>
         <div class="config-item">
           <span class="label">并行线程</span>
           <span class="value">3</span>
-          <span class="hint">i5-8400</span>
         </div>
         <el-divider />
         <div class="config-item">
@@ -96,6 +93,86 @@
             active-text="开"
             inactive-text="关"
           />
+        </div>
+        <el-divider />
+        <div class="config-item" style="flex-direction:column;align-items:flex-start;gap:6px">
+          <span class="label" style="width:auto">聚合策略选择</span>
+          <div class="strategy-checkboxes">
+            <el-checkbox
+              v-for="s in allStrategies" :key="s"
+              :model-value="selectedStrategies.includes(s)"
+              @change="(v:boolean) => toggleStrategy(s,v)"
+              size="small"
+            >{{ s }}</el-checkbox>
+          </div>
+        </div>
+      </el-card>
+
+      <!-- 📐 参数边界配置 -->
+      <el-card class="bounds-card">
+        <template #header>
+          <div class="card-header"><el-icon><EditPen /></el-icon><span>参数边界配置（每股票独立）</span></div>
+        </template>
+        <div class="config-item">
+          <span class="label">股票</span>
+          <el-select v-model="boundsStock" placeholder="选股票" filterable size="small" style="width:220px" @change="loadBounds">
+            <el-option v-for="c in watchlistCodes" :key="c.code" :label="`${c.code} ${c.name}`" :value="c.code" />
+          </el-select>
+        </div>
+        <template v-if="boundsStock">
+          <el-tabs v-model="boundsTab" size="small" style="margin-top:8px">
+            <el-tab-pane label="聚合参数" name="agg">
+              <div v-for="(v, k) in aggBounds" :key="k" class="bounds-row">
+                <span class="bound-label">{{ k }}</span>
+                <el-input-number v-model="aggBounds[k][0]" :min="0" :max="1" :step="0.05" :precision="2" size="small" controls-position="right" style="width:110px" />
+                <span class="bound-sep">~</span>
+                <el-input-number v-model="aggBounds[k][1]" :min="0" :max="1" :step="0.05" :precision="2" size="small" controls-position="right" style="width:110px" />
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="单策略参数" name="strat">
+              <div class="config-item" style="margin-bottom:6px">
+                <span class="label">策略</span>
+                <el-select v-model="boundsStrategy" placeholder="选策略" size="small" style="width:200px" filterable>
+                  <el-option v-for="s in strategyBoundsKeys" :key="s" :label="s" :value="s" />
+                </el-select>
+              </div>
+              <template v-if="boundsStrategy && strategyBounds[boundsStrategy]">
+                <div v-for="(v, k) in strategyBounds[boundsStrategy]" :key="k" class="bounds-row">
+                  <span class="bound-label">{{ k }}</span>
+                  <el-input-number v-model="strategyBounds[boundsStrategy][k][0]" :step="v[0] < 1 ? 0.05 : 1" :precision="v[0] < 1 ? 2 : 0" size="small" controls-position="right" style="width:100px" />
+                  <span class="bound-sep">~</span>
+                  <el-input-number v-model="strategyBounds[boundsStrategy][k][1]" :step="v[1] < 1 ? 0.05 : 1" :precision="v[1] < 1 ? 2 : 0" size="small" controls-position="right" style="width:100px" />
+                </div>
+              </template>
+              <el-empty v-else-if="boundsStrategy" description="该策略无参数" :image-size="40" />
+            </el-tab-pane>
+          </el-tabs>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <el-button size="small" type="primary" :loading="savingBounds" @click="handleSaveBounds">保存边界</el-button>
+            <el-button size="small" @click="handleResetBounds">重置为系统默认</el-button>
+          </div>
+        </template>
+        <el-empty v-else description="请先选择股票" :image-size="40" />
+      </el-card>
+
+      <!-- 手动聚合优化 -->
+      <el-card class="aggregation-card">
+        <template #header>
+          <div class="card-header"><el-icon><Connection /></el-icon><span>聚合优化</span></div>
+        </template>
+        <div class="config-item">
+          <span class="label">目标股票</span>
+          <el-input v-model="aggStockCode" placeholder="如 000001" size="small" style="width:120px" />
+        </div>
+        <el-button type="success" :loading="aggRunning" @click="handleAggOptimize" style="margin-top:10px;width:100%">
+          <el-icon><VideoPlay /></el-icon> 运行聚合优化
+        </el-button>
+        <div v-if="aggResult" style="margin-top:8px;font-size:13px;color:var(--el-text-color-secondary)">
+          <span v-if="aggResult.status==='success'">
+            ✅ Sharpe={{ aggResult.best_sharpe?.toFixed(3) }}
+            Buy={{ aggResult.buy_threshold }} Sell={{ aggResult.sell_threshold }}
+          </span>
+          <span v-else style="color:#f56c6c">❌ {{ aggResult.error }}</span>
         </div>
       </el-card>
 
@@ -202,15 +279,23 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   Loading, CircleCheckFilled, WarningFilled, Clock, VideoPlay,
-  Setting, DataAnalysis, Timer, Link,
+  Setting, DataAnalysis, Timer, Link, Connection, EditPen,
 } from '@element-plus/icons-vue'
 import { dailyTaskAPI, type DailyTaskStatus } from '@/api/dailyTask'
+import { strategyAPI } from '@/api/strategy'
 
 const taskStatus = ref<DailyTaskStatus | null>(null)
 const triggering = ref(false)
 const emailEnabled = ref(true)
 const emailToggling = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+// 聚合策略选择 + 手动优化
+const allStrategies = ref<string[]>([])
+const selectedStrategies = ref<string[]>([])
+const aggStockCode = ref('')
+const aggRunning = ref(false)
+const aggResult = ref<any>(null)
 
 const bannerClass = computed(() => {
   if (taskStatus.value?.is_running) return 'running'
@@ -305,8 +390,89 @@ const handleEmailToggle = async (val: boolean) => {
   } finally { emailToggling.value = false }
 }
 
+const loadStrategies = async () => {
+  try {
+    const res = await strategyAPI.listStrategies()
+    allStrategies.value = (res.strategies || []).map((s: any) => s.name)
+    const saved = localStorage.getItem('aggregation_selected_strategies')
+    selectedStrategies.value = saved ? JSON.parse(saved) : [...allStrategies.value]
+  } catch { /* will retry */ }
+}
+
+const toggleStrategy = (name: string, val: boolean) => {
+  if (val) selectedStrategies.value.push(name)
+  else selectedStrategies.value = selectedStrategies.value.filter(s => s !== name)
+  localStorage.setItem('aggregation_selected_strategies', JSON.stringify(selectedStrategies.value))
+}
+
+const handleAggOptimize = async () => {
+  if (!aggStockCode.value) { ElMessage.warning('请输入股票代码'); return }
+  aggRunning.value = true; aggResult.value = null
+  try {
+    aggResult.value = await dailyTaskAPI.optimizeAggregation(
+      aggStockCode.value,
+      selectedStrategies.value.length ? selectedStrategies.value : undefined,
+    )
+    ElMessage.success('聚合优化完成，方案已保存')
+  } catch (e: any) {
+    aggResult.value = { status: 'failed', error: e?.message || '请求失败' }
+  } finally { aggRunning.value = false }
+}
+
+// ── 参数边界 ──
+import { watchlistAPI } from '@/api/watchlist'
+const boundsStock = ref('')
+const boundsTab = ref('agg')
+const boundsStrategy = ref('')
+const aggBounds = ref<Record<string, number[]>>({ buy_threshold: [0.3, 0.7], sell_threshold: [0.2, 0.6] })
+const strategyBounds = ref<Record<string, Record<string, number[]>>>({})
+const savingBounds = ref(false)
+const watchlistCodes = ref<Array<{code:string;name:string}>>([])
+const strategyBoundsKeys = computed(() => Object.keys(strategyBounds.value))
+
+const loadWatchlist = async () => {
+  try {
+    const list = await watchlistAPI.getWatchlist()
+    watchlistCodes.value = (list || []).map((w:any) => ({ code:w.stock_code||w.code, name:w.stock_name||w.name||'' }))
+  } catch { /* silent */ }
+}
+
+const loadBounds = async (code: string) => {
+  try {
+    const data = await dailyTaskAPI.getBounds(code)
+    aggBounds.value = data.aggregation_bounds || { buy_threshold: [0.3, 0.7], sell_threshold: [0.2, 0.6] }
+    strategyBounds.value = data.strategy_bounds || {}
+    boundsStrategy.value = ''
+  } catch { /* silent */ }
+}
+
+const handleSaveBounds = async () => {
+  if (!boundsStock.value) return
+  savingBounds.value = true
+  try {
+    const clean: Record<string, Record<string, number[]>> = {}
+    for (const [sn, ps] of Object.entries(strategyBounds.value)) {
+      clean[sn] = {}
+      for (const [pn, vs] of Object.entries(ps)) {
+        clean[sn][pn] = [vs[0], vs[1]]
+      }
+    }
+    await dailyTaskAPI.saveBounds(boundsStock.value, aggBounds.value, clean)
+    ElMessage.success('参数边界已保存')
+  } catch (e: any) { ElMessage.error(e?.message || '保存失败')
+  } finally { savingBounds.value = false }
+}
+
+const handleResetBounds = async () => {
+  if (!boundsStock.value) return
+  try { await dailyTaskAPI.saveBounds(boundsStock.value, {}, {}); loadBounds(boundsStock.value); ElMessage.success('已重置') }
+  catch { /* silent */ }
+}
+
 onMounted(() => {
   loadStatus()
+  loadStrategies()
+  loadWatchlist()
 })
 
 onUnmounted(() => {
@@ -351,10 +517,12 @@ onUnmounted(() => {
   .result-card  { grid-column: 2; }
   .history-card { grid-column: 2; }
   .links-card   { grid-column: 1 / -1; }
+  .bounds-card   { grid-column: 1 / -1; }
+  .aggregation-card { grid-column: 1 / -1; }
 
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
-    .config-card, .result-card, .history-card, .links-card { grid-column: 1; grid-row: auto; }
+    .config-card, .result-card, .history-card, .links-card, .bounds-card, .aggregation-card { grid-column: 1; grid-row: auto; }
   }
 }
 
@@ -401,5 +569,24 @@ onUnmounted(() => {
 
 .card-header { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
 
+.strategy-checkboxes {
+  display: flex; flex-wrap: wrap; gap: 4px; max-height: 200px; overflow-y: auto;
+  :deep(.el-checkbox) { margin-right: 0; }
+}
+
+.aggregation-card {
+  grid-column: 2;
+  @media (max-width: 768px) { grid-column: 1; }
+}
+
 .links-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+
+// ── 边界配置 ──
+.bounds-card { .config-item { padding: 4px 0; } }
+
+.bounds-row {
+  display: flex; align-items: center; gap: 6px; padding: 4px 0;
+  .bound-label { width: 120px; font-size: 13px; color: var(--el-text-color-secondary); }
+  .bound-sep { color: var(--el-text-color-placeholder); }
+}
 </style>

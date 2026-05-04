@@ -42,11 +42,13 @@ class OptimizationResult:
 
 @dataclass
 class WeightOptimizationResult:
-    """权重优化结果"""
+    """权重+阈值优化结果"""
     stock_code: str
     weights: Dict[str, float]  # strategy_name -> weight
-    best_sharpe: float
-    elapsed_seconds: float
+    buy_threshold: float = 0.5
+    sell_threshold: float = 0.4
+    best_sharpe: float = 0
+    elapsed_seconds: float = 0
     error: Optional[str] = None
 
 
@@ -198,9 +200,9 @@ class BatchOptimizer:
         result.weight_result = weight_result
 
         if weight_result and weight_result.error is None and weight_result.weights:
-            # 4. 用最优权重跑聚合，检测买点
+            # 4. 用最优权重 + 最优阈值跑聚合，检测买点
             buy_signals = self._detect_buy_signals(
-                data, active_strategies, weight_result.weights
+                data, active_strategies, weight_result.weights, weight_result.buy_threshold
             )
             result.buy_signals = buy_signals
 
@@ -286,10 +288,14 @@ class BatchOptimizer:
         stock_code: str,
     ) -> WeightOptimizationResult:
         """
-        PSO 优化聚合权重
+        三维 PSO 优化聚合权重 + 买入阈值 + 卖出阈值
 
         目标：最大化加权聚合信号的 Sharpe ratio
-        搜索空间：每个策略的权重 ∈ [0.1, 2.0]
+        搜索空间：
+          - 权重:       w_i ∈ [0.1, 2.0]
+          - buy_threshold:  ∈ [0.3, 0.7]
+          - sell_threshold: ∈ [0.2, 0.6]
+        约束: buy_threshold > sell_threshold
         """
         t0 = datetime.now()
 
@@ -304,7 +310,6 @@ class BatchOptimizer:
                 strategy = self.strategy_manager.get_strategy(r.strategy_name)
                 if strategy is None:
                     continue
-                # 设置最优参数
                 for k, v in r.optimal_params.items():
                     if hasattr(strategy, k):
                         setattr(strategy, k, v)
@@ -325,27 +330,33 @@ class BatchOptimizer:
                 error="有效策略不足2个",
             )
 
-        # PSO 搜索最优权重
+        # PSO: 权重 + 阈值（共 n+2 个变量）
         from mealpy import FloatVar, PSO
 
-        bounds = [FloatVar(lb=0.1, ub=2.0, name=f"w_{name}") for name in active_names]
+        vars_bounds = [FloatVar(lb=0.1, ub=2.0, name=f"w_{name}") for name in active_names]
+        vars_bounds += [
+            FloatVar(lb=0.3, ub=0.7, name="buy_threshold"),
+            FloatVar(lb=0.2, ub=0.6, name="sell_threshold"),
+        ]
 
         def objective(solution):
-            weights = dict(zip(active_names, solution))
+            *w_vals, bt, st = solution
+            # 约束: buy > sell
+            if bt <= st:
+                return -10
+
+            weights = dict(zip(active_names, w_vals))
             total_weight = sum(abs(w) for w in weights.values()) or 1.0
 
-            # 加权聚合信号
             aggregated = np.zeros(len(data))
             for name, signals in strategy_signals.items():
                 w = weights.get(name, 0)
                 aggregated += w * signals
 
-            # 转为 buy/hold/sell
             agg_signals = np.zeros(len(data), dtype=int)
-            agg_signals[aggregated > 0.3 * total_weight] = 1
-            agg_signals[aggregated < -0.3 * total_weight] = -1
+            agg_signals[aggregated > bt * total_weight] = 1
+            agg_signals[aggregated < -st * total_weight] = -1
 
-            # 构造结果 DataFrame 并计算统计
             result_df = pd.DataFrame({
                 "date": data["date"].values,
                 "signal": agg_signals,
@@ -374,26 +385,31 @@ class BatchOptimizer:
             )
             g_best = model.solve(problem)
 
-            best_weights = dict(zip(active_names, g_best.solution))
-            # 归一化到 [0.1, 2.0]
-            max_w = max(best_weights.values()) or 1.0
+            *w_best, bt_best, st_best = g_best.solution
+            best_weights = dict(zip(active_names, w_best))
+
+            # 归一化权重到 [0.1, 2.0]
+            max_w = max(w_best) or 1.0
             best_weights = {k: max(v / max_w * 2.0, 0.1) for k, v in best_weights.items()}
 
             elapsed = (datetime.now() - t0).total_seconds()
             return WeightOptimizationResult(
                 stock_code=stock_code,
                 weights=best_weights,
+                buy_threshold=round(bt_best, 3),
+                sell_threshold=round(st_best, 3),
                 best_sharpe=g_best.target.fitness,
                 elapsed_seconds=elapsed,
             )
 
         except Exception as e:
             logger.error(f"[{stock_code}] 权重优化失败: {e}")
-            # 回退：等权
             equal_weights = {name: 1.0 for name in active_names}
             return WeightOptimizationResult(
                 stock_code=stock_code,
                 weights=equal_weights,
+                buy_threshold=0.5,
+                sell_threshold=0.4,
                 best_sharpe=0,
                 elapsed_seconds=0,
                 error=str(e),
@@ -406,8 +422,9 @@ class BatchOptimizer:
         data: pd.DataFrame,
         param_results: List[OptimizationResult],
         weights: Dict[str, float],
+        buy_threshold: float = 0.5,
     ) -> List[Dict[str, Any]]:
-        """使用最优权重检测买入信号"""
+        """使用最优权重和阈值检测买入信号"""
         total_weight = sum(weights.values())
         aggregated = np.zeros(len(data))
 
@@ -428,11 +445,10 @@ class BatchOptimizer:
             except Exception:
                 continue
 
-        # 找到最近的买入信号（最后5个交易日）
         buy_signals = []
         recent_n = min(5, len(data))
         for i in range(len(data) - recent_n, len(data)):
-            if aggregated[i] >= 0.5 * total_weight:
+            if aggregated[i] >= buy_threshold * total_weight:
                 buy_signals.append({
                     "date": str(data.iloc[i]["date"])[:10],
                     "score": round(float(aggregated[i]) / total_weight, 3),
@@ -442,7 +458,7 @@ class BatchOptimizer:
                     ],
                 })
 
-        return buy_signals[-3:]  # 最多返回最近3个
+        return buy_signals[-3:]
 
     # ────────── 结果持久化 ──────────
 
@@ -494,3 +510,51 @@ class BatchOptimizer:
                 )
             except Exception as e:
                 logger.warning(f"保存权重失败: {e}")
+
+    def save_aggregation_scheme(
+        self,
+        stock_code: str,
+        stock_name: str,
+        param_results: List[OptimizationResult],
+        weight_result: WeightOptimizationResult,
+    ) -> Optional[int]:
+        """
+        保存完整的聚合方案（可被前端加载）
+
+        方案包含：股票代码、所有策略的最优参数、最优权重、最优阈值
+        """
+        if not weight_result or not weight_result.weights or weight_result.error:
+            return None
+
+        now = datetime.now().strftime("%Y-%m-%d")
+        strategies_list = []
+        required_names = []
+
+        for r in param_results:
+            if r.error or r.strategy_name not in weight_result.weights:
+                continue
+            strategies_list.append({
+                "name": r.strategy_name,
+                "weight": round(weight_result.weights[r.strategy_name], 3),
+                "params": r.optimal_params,
+            })
+            required_names.append(r.strategy_name)
+
+        if len(strategies_list) < 2:
+            return None
+
+        try:
+            scheme_id = self.storage.save_aggregation_scheme(
+                name=f"auto_{stock_code}_{now}",
+                description=f"自动优化聚合方案 (Sharpe={weight_result.best_sharpe:.3f}, buy={weight_result.buy_threshold}, sell={weight_result.sell_threshold})",
+                stock_code=stock_code,
+                strategies=strategies_list,
+                buy_threshold=weight_result.buy_threshold,
+                sell_threshold=weight_result.sell_threshold,
+                required_strategies=required_names,
+            )
+            logger.info(f"[{stock_code}] 聚合方案已保存: ID={scheme_id}")
+            return scheme_id
+        except Exception as e:
+            logger.error(f"[{stock_code}] 保存聚合方案失败: {e}")
+            return None
