@@ -362,6 +362,18 @@ const handleEmailToggle = async (val: boolean) => {
   } finally { emailToggling.value = false }
 }
 
+const handleSaveConfig = async () => {
+  if (!configTime.value) return
+  const [h, m] = configTime.value.split(':').map(Number)
+  savingConfig.value = true
+  try {
+    await dailyTaskAPI.updateConfig(h, m)
+    ElMessage.success(`每日任务时间已更新为 ${configTime.value}`)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally { savingConfig.value = false }
+}
+
 const loadStrategies = async () => {
   try {
     const res = await strategyAPI.listStrategies()

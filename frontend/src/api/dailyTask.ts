@@ -83,4 +83,11 @@ export const dailyTaskAPI = {
     })
     return response.data
   },
+
+  updateConfig: async (hour: number, minute: number, notifyEmail = ''): Promise<any> => {
+    const response = await apiClient.put('/api/admin/daily-task/config', {
+      hour, minute, notify_email: notifyEmail,
+    })
+    return response.data
+  },
 }
