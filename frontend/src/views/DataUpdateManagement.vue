@@ -158,8 +158,13 @@
                   <el-icon><DataLine /></el-icon>
                   <span>更新日K线数据</span>
                 </div>
-                <div class="action-desc">更新指定市场或全部股票的日K线数据</div>
+                <div class="action-desc">更新指定市场或自选股的日K线数据</div>
+                <el-radio-group v-model="dailyUpdateMode" size="small" style="margin-top:8px;width:100%;display:flex" :disabled="!isAdmin">
+                  <el-radio-button value="market" style="flex:1">全部</el-radio-button>
+                  <el-radio-button value="watchlist" style="flex:1">仅自选股</el-radio-button>
+                </el-radio-group>
                 <el-select
+                  v-if="dailyUpdateMode === 'market'"
                   v-model="selectedMarket"
                   placeholder="选择市场"
                   style="width: 100%; margin-top: 10px"
@@ -220,6 +225,7 @@ import {
   RefreshRight,
 } from '@element-plus/icons-vue'
 import { dataUpdateAPI, type DataUpdateConfig, type SchedulerStatus } from '@/api/dataUpdate'
+import { watchlistAPI } from '@/api/watchlist'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -240,6 +246,7 @@ const schedulerStatus = ref<SchedulerStatus>({
 })
 
 const selectedMarket = ref('all')
+const dailyUpdateMode = ref<'market' | 'watchlist'>('market')
 const saving = ref(false)
 const updating = ref(false)
 
@@ -338,13 +345,21 @@ const handleStockListTimeChange = () => {
 //   }
 
 const handleManualUpdate = async (updateType: 'stock_list' | 'daily_data' | 'all') => {
-  // 权限已放宽，所有用户均可触发手动更新
-
   updating.value = true
   try {
     const request: any = { update_type: updateType }
     if (updateType === 'daily_data') {
-      request.market = selectedMarket.value
+      if (dailyUpdateMode.value === 'watchlist') {
+        // 获取自选股代码
+        try {
+          const wl = await watchlistAPI.getWatchlist()
+          const codes = (wl || []).map((w: any) => w.stock_code || w.code).filter(Boolean)
+          if (codes.length === 0) { ElMessage.warning('自选股为空'); updating.value = false; return }
+          request.stock_codes = codes
+        } catch { ElMessage.error('获取自选股失败'); updating.value = false; return }
+      } else {
+        request.market = selectedMarket.value
+      }
     }
 
     const result = await dataUpdateAPI.manualUpdate(request)
