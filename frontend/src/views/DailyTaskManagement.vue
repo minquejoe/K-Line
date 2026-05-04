@@ -78,7 +78,7 @@
             value-format="HH:mm"
             placeholder="选择时间"
             size="small"
-            style="width:140px"
+            style="width:120px"
           />
           <el-button size="small" type="primary" @click="handleSaveConfig" :loading="savingConfig" style="margin-left:8px">保存</el-button>
         </div>
@@ -157,8 +157,8 @@
           </el-tab-pane>
           <el-tab-pane label="邮件" name="mail">
             <div class="log-mini"><span>状态</span><el-tag :type="emailEnabled?'success':'info'" size="small">{{ emailEnabled ? '已开启' : '已关闭' }}</el-tag></div>
-            <div class="log-mini"><span>收件人</span><span>{{ taskStatus?.email_info?.recipient || '-' }}</span></div>
-            <div class="log-mini"><span>SMTP</span><span class="hint">{{ taskStatus?.email_info?.smtp_host }}:{{ taskStatus?.email_info?.smtp_port }}</span></div>
+            <div class="log-mini"><span>收件人 </span><span>{{ taskStatus?.email_info?.recipient || '-' }}</span></div>
+            <div class="log-mini"><span>SMTP </span><span class="hint">{{ taskStatus?.email_info?.smtp_host }}:{{ taskStatus?.email_info?.smtp_port }}</span></div>
           </el-tab-pane>
         </el-tabs>
       </el-card>
@@ -457,12 +457,12 @@ onUnmounted(() => {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .status-banner {
   border-radius: 12px;
-  padding: 20px 24px;
+  padding: 16px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -482,35 +482,39 @@ onUnmounted(() => {
 .page-grid {
   display: grid;
   grid-template-columns: 260px 1fr;
-  gap: 16px;
+  gap: 12px;
 
-  .config-card  { grid-row: 1 / 4; }
-  .action-card-main { grid-column: 2; grid-row: 1; }
+  .config-card  { grid-row: 1 / 3; }
+  .aggregation-card { grid-column: 2; grid-row: 1; }
   .result-card  { grid-column: 2; grid-row: 2; }
   .bounds-card  { grid-column: 1 / -1; }
   .history-card { grid-column: 1 / -1; }
-  .links-card   { grid-column: 1 / -1; }
 
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
-    .config-card, .action-card-main, .result-card, .bounds-card, .history-card, .links-card { grid-column: 1; grid-row: auto; }
+    .config-card, .aggregation-card, .result-card, .bounds-card, .history-card { grid-column: 1; grid-row: auto; }
   }
 }
 
 // ── 实时进度卡 ──
 .progress-card {
   border: 1px solid var(--el-color-primary-light-5);
-  .progress-section { display: flex; flex-direction: column; gap: 10px; }
+  .progress-section { display: flex; flex-direction: column; gap: 8px; }
   .progress-row { display: flex; align-items: center; gap: 10px; }
-  .prog-label { width: 64px; font-size: 13px; color: var(--el-text-color-secondary); flex-shrink: 0; }
+  .prog-label { font-size: 13px; color: var(--el-text-color-secondary); flex-shrink: 0; white-space: nowrap; }
   .prog-value { font-size: 14px; }
   .prog-text { font-size: 13px; color: var(--el-text-color-secondary); white-space: nowrap; }
 }
 
-.config-item { display: flex; align-items: center; padding: 4px 0; .label { color: var(--el-text-color-secondary); width: 64px; font-size: 13px; } .value { font-weight: 600; font-size: 15px; } .hint { color: var(--el-text-color-placeholder); font-size: 12px; margin-left: 8px; } }
+.config-item { display: flex; align-items: center; padding: 6px 0; gap: 8px;
+  .label { color: var(--el-text-color-secondary); font-size: 13px; white-space: nowrap; min-width: 64px; }
+  .value { font-weight: 600; font-size: 15px; }
+  .hint { color: var(--el-text-color-placeholder); font-size: 12px; margin-left: 8px; }
+}
 
-.kv-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; color: var(--el-text-color-secondary);
-  b { color: var(--el-text-color-primary); min-width: 50px; }
+.kv-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; color: var(--el-text-color-secondary);
+  & > span:first-child { white-space: nowrap; min-width: 56px; }
+  b { color: var(--el-text-color-primary); }
 }
 
 .strategy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 8px; font-size: 12px; }
@@ -533,8 +537,13 @@ onUnmounted(() => {
 .bounds-header { display: flex; align-items: center; gap: 10px; padding-bottom: 8px;
   & > span { font-size: 13px; color: var(--el-text-color-secondary); }
 }
-.bounds-grid { display: flex; flex-wrap: wrap; gap: 12px 24px; }
-.bounds-item { display: flex; align-items: center; gap: 6px; padding: 4px 0;
-  label { font-size: 13px; color: var(--el-text-color-secondary); width: 110px; }
+.bounds-grid { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.bounds-item { display: flex; align-items: center; gap: 6px; padding: 3px 0;
+  label { font-size: 13px; color: var(--el-text-color-secondary); min-width: 130px; white-space: nowrap; }
+}
+
+// ── 结果Tab迷你日志 ──
+.log-mini { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px;
+  & > span:first-child { color: var(--el-text-color-secondary); white-space: nowrap; }
 }
 </style>
