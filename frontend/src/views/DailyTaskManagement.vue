@@ -96,8 +96,8 @@
         </div>
         <el-divider />
         <div class="config-item" style="flex-direction:column;align-items:flex-start;gap:6px">
-          <span class="label" style="width:auto">聚合策略选择</span>
-          <div class="strategy-checkboxes">
+          <span class="label" style="width:auto">聚合策略</span>
+          <div class="strategy-grid">
             <el-checkbox
               v-for="s in allStrategies" :key="s"
               :model-value="selectedStrategies.includes(s)"
@@ -108,119 +108,87 @@
         </div>
       </el-card>
 
-      <!-- 📐 参数边界配置 -->
-      <el-card class="bounds-card">
+      <!-- 右栏上半：聚合优化 -->
+      <el-card class="aggregation-card">
         <template #header>
-          <div class="card-header"><el-icon><EditPen /></el-icon><span>参数边界配置（每股票独立）</span></div>
+          <div class="card-header"><el-icon><Connection /></el-icon><span>一键聚合优化</span></div>
         </template>
-        <div class="config-item">
-          <span class="label">股票</span>
-          <el-select v-model="boundsStock" placeholder="选股票" filterable size="small" style="width:220px" @change="loadBounds">
+        <div class="kv-row">
+          <span>目标股票</span>
+          <el-select v-model="aggStockCode" placeholder="从收藏选择" filterable size="small" style="width:200px">
             <el-option v-for="c in watchlistCodes" :key="c.code" :label="`${c.code} ${c.name}`" :value="c.code" />
           </el-select>
         </div>
-        <template v-if="boundsStock">
-          <el-tabs v-model="boundsTab" size="small" style="margin-top:8px">
-            <el-tab-pane label="聚合参数" name="agg">
-              <div v-for="(v, k) in aggBounds" :key="k" class="bounds-row">
-                <span class="bound-label">{{ k }}</span>
-                <el-input-number v-model="aggBounds[k][0]" :min="0" :max="1" :step="0.05" :precision="2" size="small" controls-position="right" style="width:110px" />
-                <span class="bound-sep">~</span>
-                <el-input-number v-model="aggBounds[k][1]" :min="0" :max="1" :step="0.05" :precision="2" size="small" controls-position="right" style="width:110px" />
-              </div>
-            </el-tab-pane>
-            <el-tab-pane label="单策略参数" name="strat">
-              <div class="config-item" style="margin-bottom:6px">
-                <span class="label">策略</span>
-                <el-select v-model="boundsStrategy" placeholder="选策略" size="small" style="width:200px" filterable>
-                  <el-option v-for="s in strategyBoundsKeys" :key="s" :label="s" :value="s" />
-                </el-select>
-              </div>
-              <template v-if="boundsStrategy && strategyBounds[boundsStrategy]">
-                <div v-for="(v, k) in strategyBounds[boundsStrategy]" :key="k" class="bounds-row">
-                  <span class="bound-label">{{ k }}</span>
-                  <el-input-number v-model="strategyBounds[boundsStrategy][k][0]" :step="v[0] < 1 ? 0.05 : 1" :precision="v[0] < 1 ? 2 : 0" size="small" controls-position="right" style="width:100px" />
-                  <span class="bound-sep">~</span>
-                  <el-input-number v-model="strategyBounds[boundsStrategy][k][1]" :step="v[1] < 1 ? 0.05 : 1" :precision="v[1] < 1 ? 2 : 0" size="small" controls-position="right" style="width:100px" />
-                </div>
-              </template>
-              <el-empty v-else-if="boundsStrategy" description="该策略无参数" :image-size="40" />
-            </el-tab-pane>
-          </el-tabs>
-          <div style="margin-top:8px;display:flex;gap:8px">
-            <el-button size="small" type="primary" :loading="savingBounds" @click="handleSaveBounds">保存边界</el-button>
-            <el-button size="small" @click="handleResetBounds">重置为系统默认</el-button>
-          </div>
-        </template>
-        <el-empty v-else description="请先选择股票" :image-size="40" />
-      </el-card>
-
-      <!-- 手动聚合优化 -->
-      <el-card class="aggregation-card">
-        <template #header>
-          <div class="card-header"><el-icon><Connection /></el-icon><span>聚合优化</span></div>
-        </template>
-        <div class="config-item">
-          <span class="label">目标股票</span>
-          <el-input v-model="aggStockCode" placeholder="如 000001" size="small" style="width:120px" />
-        </div>
-        <el-button type="success" :loading="aggRunning" @click="handleAggOptimize" style="margin-top:10px;width:100%">
+        <el-button type="success" :loading="aggRunning" @click="handleAggOptimize" style="margin-top:8px;width:100%">
           <el-icon><VideoPlay /></el-icon> 运行聚合优化
         </el-button>
-        <div v-if="aggResult" style="margin-top:8px;font-size:13px;color:var(--el-text-color-secondary)">
-          <span v-if="aggResult.status==='success'">
-            ✅ Sharpe={{ aggResult.best_sharpe?.toFixed(3) }}
-            Buy={{ aggResult.buy_threshold }} Sell={{ aggResult.sell_threshold }}
-          </span>
-          <span v-else style="color:#f56c6c">❌ {{ aggResult.error }}</span>
+        <div v-if="aggResult" class="agg-result" :class="aggResult.status">
+          <template v-if="aggResult.status==='success'">
+            ✅ Sharpe={{ aggResult.best_sharpe?.toFixed(3) }} · Buy={{ aggResult.buy_threshold }} · Sell={{ aggResult.sell_threshold }}
+          </template>
+          <template v-else>❌ {{ aggResult.error }}</template>
         </div>
       </el-card>
 
-      <!-- 右侧：上次运行 -->
+      <!-- 右栏下半：运行结果 -->
       <el-card v-if="taskStatus?.last_run" class="result-card">
         <template #header>
-          <div class="card-header"><el-icon><DataAnalysis /></el-icon><span>上次运行结果</span></div>
+          <div class="card-header"><el-icon><DataAnalysis /></el-icon><span>上次运行</span><span class="hint" style="margin-left:auto;font-weight:400">{{ taskStatus.last_run.time?.slice(0,19)?.replace('T',' ') }}</span></div>
         </template>
         <div class="result-grid">
-          <div class="result-item stock">
-            <span class="num">{{ taskStatus.last_run.stocks_scanned }}</span>
-            <span class="txt">扫描股票</span>
-          </div>
-          <div class="result-item signal" :class="{ active: (taskStatus.last_run.buy_signals || 0) > 0 }">
-            <span class="num">{{ taskStatus.last_run.buy_signals || 0 }}</span>
-            <span class="txt">买入信号</span>
-          </div>
-          <div class="result-item time">
-            <span class="num">{{ fmtElapsed }}</span>
-            <span class="txt">耗时</span>
-          </div>
-          <div class="result-item error" v-if="(taskStatus.last_run.errors || 0) > 0">
-            <span class="num">{{ taskStatus.last_run.errors }}</span>
-            <span class="txt">异常</span>
-          </div>
-        </div>
-
-        <div v-if="taskStatus.last_buy_signals?.length" class="signals-section">
-          <el-divider />
-          <h4>📊 触发信号</h4>
-          <div class="signal-list">
-            <div v-for="(s, i) in taskStatus.last_buy_signals" :key="i" class="signal-item">
-              <span class="sig-code">{{ s.stock_code }}</span>
-              <span class="sig-name">{{ s.stock_name }}</span>
-              <el-tag :type="s.score >= 0.7 ? 'success' : 'warning'" size="small" effect="dark">
-                {{ (s.score * 100).toFixed(0) }}%
-              </el-tag>
-              <span class="sig-strategies">{{ (s.strategies || []).slice(0, 4).join(', ') }}</span>
-            </div>
-          </div>
+          <div class="result-item"><span class="num">{{ taskStatus.last_run.stocks_scanned }}</span><span class="txt">股票</span></div>
+          <div class="result-item" :class="{ active: (taskStatus.last_run.buy_signals || 0) > 0 }"><span class="num">{{ taskStatus.last_run.buy_signals || 0 }}</span><span class="txt">信号</span></div>
+          <div class="result-item"><span class="num">{{ fmtElapsed }}</span><span class="txt">耗时</span></div>
+          <div v-if="(taskStatus.last_run.errors || 0) > 0" class="result-item"><span class="num">{{ taskStatus.last_run.errors }}</span><span class="txt">异常</span></div>
         </div>
       </el-card>
-
       <el-card v-else class="result-card">
+        <template #header><div class="card-header"><el-icon><DataAnalysis /></el-icon><span>运行结果</span></div></template>
+        <el-empty description="尚未执行" :image-size="60" />
+      </el-card>
+
+      <!-- 全宽：边界配置 -->
+      <el-card class="bounds-card">
         <template #header>
-          <div class="card-header"><el-icon><DataAnalysis /></el-icon><span>运行结果</span></div>
+          <div class="card-header"><el-icon><EditPen /></el-icon><span>参数边界配置</span></div>
         </template>
-        <el-empty description="尚未执行过每日优化任务" :image-size="80" />
+        <div class="bounds-header">
+          <span>股票</span>
+          <el-select v-model="boundsStock" placeholder="选股票" filterable size="small" style="width:200px" @change="loadBounds">
+            <el-option v-for="c in watchlistCodes" :key="c.code" :label="`${c.code} ${c.name}`" :value="c.code" />
+          </el-select>
+          <template v-if="boundsStock">
+            <el-button size="small" type="primary" :loading="savingBounds" @click="handleSaveBounds">保存</el-button>
+            <el-button size="small" @click="handleResetBounds">重置默认</el-button>
+          </template>
+        </div>
+        <el-tabs v-if="boundsStock" v-model="boundsTab" size="small" style="margin-top:4px">
+          <el-tab-pane label="聚合参数" name="agg">
+            <div class="bounds-grid">
+              <div v-for="(v,k) in aggBounds" :key="k" class="bounds-item">
+                <label>{{ k }}</label>
+                <el-input-number v-model="aggBounds[k][0]" :min="0" :max="1" :step="0.05" :precision="2" size="small" controls-position="right" style="width:100px" />
+                <span>~</span>
+                <el-input-number v-model="aggBounds[k][1]" :min="0" :max="1" :step="0.05" :precision="2" size="small" controls-position="right" style="width:100px" />
+              </div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane label="单策略参数" name="strat">
+            <el-select v-model="boundsStrategy" placeholder="选策略" size="small" style="width:220px;margin-bottom:8px" filterable clearable>
+              <el-option v-for="s in strategyBoundsKeys" :key="s" :label="s" :value="s" />
+            </el-select>
+            <div v-if="boundsStrategy && strategyBounds[boundsStrategy]" class="bounds-grid">
+              <div v-for="(v,k) in strategyBounds[boundsStrategy]" :key="k" class="bounds-item">
+                <label>{{ k }}</label>
+                <el-input-number v-model="strategyBounds[boundsStrategy][k][0]" :step="v[0] < 1 ? 0.05 : 1" :precision="v[0] < 1 ? 2 : 0" size="small" controls-position="right" style="width:100px" />
+                <span>~</span>
+                <el-input-number v-model="strategyBounds[boundsStrategy][k][1]" :step="v[1] < 1 ? 0.05 : 1" :precision="v[1] < 1 ? 2 : 0" size="small" controls-position="right" style="width:100px" />
+              </div>
+            </div>
+            <el-empty v-else-if="boundsStrategy" description="该策略无参数" :image-size="40" />
+          </el-tab-pane>
+        </el-tabs>
+        <el-empty v-if="!boundsStock" description="选择股票后编辑参数边界" :image-size="40" />
       </el-card>
 
       <!-- 运行历史 -->
@@ -509,20 +477,19 @@ onUnmounted(() => {
 
 .page-grid {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  grid-template-rows: auto auto;
+  grid-template-columns: 260px 1fr;
   gap: 16px;
 
-  .config-card  { grid-row: 1 / 3; }
-  .result-card  { grid-column: 2; }
-  .history-card { grid-column: 2; }
+  .config-card  { grid-row: 1 / 4; }
+  .action-card-main { grid-column: 2; grid-row: 1; }
+  .result-card  { grid-column: 2; grid-row: 2; }
+  .bounds-card  { grid-column: 1 / -1; }
+  .history-card { grid-column: 1 / -1; }
   .links-card   { grid-column: 1 / -1; }
-  .bounds-card   { grid-column: 1 / -1; }
-  .aggregation-card { grid-column: 1 / -1; }
 
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
-    .config-card, .result-card, .history-card, .links-card, .bounds-card, .aggregation-card { grid-column: 1; grid-row: auto; }
+    .config-card, .action-card-main, .result-card, .bounds-card, .history-card, .links-card { grid-column: 1; grid-row: auto; }
   }
 }
 
@@ -536,57 +503,34 @@ onUnmounted(() => {
   .prog-text { font-size: 13px; color: var(--el-text-color-secondary); white-space: nowrap; }
 }
 
-.config-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 0;
-  .label { color: var(--el-text-color-secondary); width: 64px; font-size: 13px; }
-  .value { font-weight: 600; font-size: 15px; }
-  .hint { color: var(--el-text-color-placeholder); font-size: 12px; margin-left: 8px; }
+.config-item { display: flex; align-items: center; padding: 4px 0; .label { color: var(--el-text-color-secondary); width: 64px; font-size: 13px; } .value { font-weight: 600; font-size: 15px; } .hint { color: var(--el-text-color-placeholder); font-size: 12px; margin-left: 8px; } }
+
+.kv-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; color: var(--el-text-color-secondary);
+  b { color: var(--el-text-color-primary); min-width: 50px; }
 }
 
-.result-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-  gap: 12px;
+.strategy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 8px; font-size: 12px; }
+
+.agg-result { margin-top: 8px; padding: 8px 10px; border-radius: 6px; font-size: 13px;
+  &.success { background: #f0f9eb; color: #67c23a; }
+  &.failed  { background: #fef0f0; color: #f56c6c; }
 }
 
-.result-item {
-  text-align: center; padding: 12px 8px; border-radius: 10px; background: var(--el-fill-color-light);
-  &.signal.active { background: #fef0f0; }
+.result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 12px; }
+.result-item { text-align: center; padding: 12px 8px; border-radius: 10px; background: var(--el-fill-color-light);
+  &.active { background: #fef0f0; }
   .num { font-size: 24px; font-weight: 700; display: block; }
   .txt { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; }
 }
 
-.signals-section h4 { margin: 4px 0 8px; font-size: 14px; }
-
-.signal-item {
-  display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--el-border-color-lighter);
-  .sig-code { font-weight: 600; width: 70px; }
-  .sig-name { color: var(--el-text-color-secondary); font-size: 13px; flex: 1; }
-  .sig-strategies { color: var(--el-text-color-placeholder); font-size: 12px; }
-}
-
 .card-header { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
 
-.strategy-checkboxes {
-  display: flex; flex-wrap: wrap; gap: 4px; max-height: 200px; overflow-y: auto;
-  :deep(.el-checkbox) { margin-right: 0; }
-}
-
-.aggregation-card {
-  grid-column: 2;
-  @media (max-width: 768px) { grid-column: 1; }
-}
-
-.links-grid { display: flex; flex-wrap: wrap; gap: 16px; }
-
 // ── 边界配置 ──
-.bounds-card { .config-item { padding: 4px 0; } }
-
-.bounds-row {
-  display: flex; align-items: center; gap: 6px; padding: 4px 0;
-  .bound-label { width: 120px; font-size: 13px; color: var(--el-text-color-secondary); }
-  .bound-sep { color: var(--el-text-color-placeholder); }
+.bounds-header { display: flex; align-items: center; gap: 10px; padding-bottom: 8px;
+  & > span { font-size: 13px; color: var(--el-text-color-secondary); }
+}
+.bounds-grid { display: flex; flex-wrap: wrap; gap: 12px 24px; }
+.bounds-item { display: flex; align-items: center; gap: 6px; padding: 4px 0;
+  label { font-size: 13px; color: var(--el-text-color-secondary); width: 110px; }
 }
 </style>
