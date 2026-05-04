@@ -23,6 +23,11 @@ class BoundsRequest(BaseModel):
     aggregation_bounds: Dict[str, list] = {}
     strategy_bounds: Dict[str, Dict[str, list]] = {}
 
+class TaskConfigRequest(BaseModel):
+    hour: int = 15
+    minute: int = 30
+    notify_email: str = ""
+
 
 @router.get("/daily-task/status")
 async def get_daily_task_status(
@@ -98,3 +103,18 @@ async def save_bounds(
     if ok:
         return {"status": "ok"}
     raise HTTPException(500, "保存失败")
+
+
+@router.get("/daily-task/config")
+async def get_config(current_user=Depends(get_current_admin_user)):
+    """获取每日任务配置"""
+    return daily_task_service.get_status()
+
+@router.put("/daily-task/config")
+async def update_config(
+    body: TaskConfigRequest,
+    current_user=Depends(get_current_admin_user),
+):
+    """更新运行时间和邮件收件人"""
+    daily_task_service.update_config(body.hour, body.minute, body.notify_email)
+    return {"status": "ok"}

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -86,7 +87,8 @@ class BatchOptimizer:
     WEIGHT_PSO_ITERATIONS = 30
 
     # 并行度
-    MAX_WORKERS = 3
+    # 并行度：自动检测CPU核心数，上限4（给系统留余量）
+    MAX_WORKERS = min((os.cpu_count() or 4) - 1, 4)
 
     # 回溯窗口（月）
     LOOKBACK_MONTHS = 6

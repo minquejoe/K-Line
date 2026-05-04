@@ -33,11 +33,13 @@ class DailyTaskService:
         self.notification = NotificationService()
         self.scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
         self._last_run: Dict[str, Any] = {}
-        self._run_history: List[Dict[str, Any]] = []  # 最近运行历史
+        self._run_history: List[Dict[str, Any]] = []  # 最近自动运行历史
+        self._manual_history: List[Dict[str, Any]] = []  # 最近手动运行历史
         self._last_buy_signals: List[Dict[str, Any]] = []  # 最近买入信号
         self._is_running = False
-        self._max_history = 30  # 保留最近30条记录
+        self._max_history = 30
         self._enable_email = os.getenv("ENABLE_EMAIL_NOTIFY", "true").lower() == "true"
+        self._notify_email = os.getenv("NOTIFY_EMAIL", "")
 
     # ────────── 定时任务注册 ──────────
 
@@ -179,16 +181,22 @@ class DailyTaskService:
             return []
 
     def get_status(self) -> Dict[str, Any]:
-        """获取最近运行状态（含进度和历史）"""
+        """获取最近运行状态（含进度、历史、邮件信息）"""
         hour = int(os.getenv("DAILY_TASK_HOUR", "15"))
         minute = int(os.getenv("DAILY_TASK_MINUTE", "30"))
         return {
             "last_run": self._last_run or None,
             "run_history": self._run_history,
+            "manual_history": self._manual_history,
             "last_buy_signals": self._last_buy_signals,
             "is_running": self._is_running,
             "config": {"hour": hour, "minute": minute},
             "email_enabled": self._enable_email,
+            "email_info": {
+                "recipient": self._notify_email or self.notification.smtp_user,
+                "smtp_host": self.notification.smtp_host,
+                "smtp_port": self.notification.smtp_port,
+            },
             "progress": {
                 "phase": self.batch_optimizer.progress.phase,
                 "stock_index": self.batch_optimizer.progress.stock_index,
@@ -202,8 +210,28 @@ class DailyTaskService:
         }
 
     async def trigger_manual(self) -> Dict[str, Any]:
-        """手动触发每日完整任务"""
-        return await self.run_daily()
+        """手动触发每日完整任务（标记为manual）"""
+        result = await self.run_daily()
+        result["run_type"] = "manual"
+        self._manual_history.insert(0, result.copy())
+        if len(self._manual_history) > self._max_history:
+            self._manual_history = self._manual_history[: self._max_history]
+        return result
+
+    def update_config(self, hour: int, minute: int, notify_email: str):
+        """更新定时任务运行时间和邮件收件人"""
+        import os
+        os.environ["DAILY_TASK_HOUR"] = str(hour)
+        os.environ["DAILY_TASK_MINUTE"] = str(minute)
+        if notify_email:
+            os.environ["NOTIFY_EMAIL"] = notify_email
+            self._notify_email = notify_email
+        # 重新调度
+        self.scheduler.reschedule_job(
+            "daily_optimization",
+            trigger=CronTrigger(hour=hour, minute=minute, timezone="Asia/Shanghai"),
+        )
+        logger.info(f"任务时间已更新为 {hour:02d}:{minute:02d}")
 
     async def optimize_aggregation(
         self, stock_code: str, strategy_names: Optional[List[str]] = None

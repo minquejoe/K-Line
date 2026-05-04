@@ -72,7 +72,15 @@
         </template>
         <div class="config-item">
           <span class="label">定时执行</span>
-          <span class="value">{{ fmtTime }}</span>
+          <el-time-picker
+            v-model="configTime"
+            format="HH:mm"
+            value-format="HH:mm"
+            placeholder="选择时间"
+            size="small"
+            style="width:140px"
+          />
+          <el-button size="small" type="primary" @click="handleSaveConfig" :loading="savingConfig" style="margin-left:8px">保存</el-button>
         </div>
         <div class="config-item">
           <span class="label">优化周期</span>
@@ -80,7 +88,7 @@
         </div>
         <div class="config-item">
           <span class="label">并行线程</span>
-          <span class="value">3</span>
+          <span class="value">自动</span>
         </div>
         <el-divider />
         <div class="config-item">
@@ -93,18 +101,6 @@
             active-text="开"
             inactive-text="关"
           />
-        </div>
-        <el-divider />
-        <div class="config-item" style="flex-direction:column;align-items:flex-start;gap:6px">
-          <span class="label" style="width:auto">聚合策略</span>
-          <div class="strategy-grid">
-            <el-checkbox
-              v-for="s in allStrategies" :key="s"
-              :model-value="selectedStrategies.includes(s)"
-              @change="(v:boolean) => toggleStrategy(s,v)"
-              size="small"
-            >{{ s }}</el-checkbox>
-          </div>
         </div>
       </el-card>
 
@@ -131,20 +127,40 @@
       </el-card>
 
       <!-- 右栏下半：运行结果 -->
-      <el-card v-if="taskStatus?.last_run" class="result-card">
+      <el-card class="result-card">
         <template #header>
-          <div class="card-header"><el-icon><DataAnalysis /></el-icon><span>上次运行</span><span class="hint" style="margin-left:auto;font-weight:400">{{ taskStatus.last_run.time?.slice(0,19)?.replace('T',' ') }}</span></div>
+          <div class="card-header"><el-icon><DataAnalysis /></el-icon><span>运行结果</span></div>
         </template>
-        <div class="result-grid">
-          <div class="result-item"><span class="num">{{ taskStatus.last_run.stocks_scanned }}</span><span class="txt">股票</span></div>
-          <div class="result-item" :class="{ active: (taskStatus.last_run.buy_signals || 0) > 0 }"><span class="num">{{ taskStatus.last_run.buy_signals || 0 }}</span><span class="txt">信号</span></div>
-          <div class="result-item"><span class="num">{{ fmtElapsed }}</span><span class="txt">耗时</span></div>
-          <div v-if="(taskStatus.last_run.errors || 0) > 0" class="result-item"><span class="num">{{ taskStatus.last_run.errors }}</span><span class="txt">异常</span></div>
-        </div>
-      </el-card>
-      <el-card v-else class="result-card">
-        <template #header><div class="card-header"><el-icon><DataAnalysis /></el-icon><span>运行结果</span></div></template>
-        <el-empty description="尚未执行" :image-size="60" />
+        <el-tabs v-model="resultTab" size="small">
+          <el-tab-pane label="自动运行" name="auto">
+            <template v-if="taskStatus?.run_history?.length">
+              <div v-for="r in taskStatus.run_history.slice(0,3)" :key="r.time" class="log-mini">
+                <span>{{ r.time?.slice(0,19)?.replace('T',' ') }}</span>
+                <el-tag :type="r.status==='success'?'success':'danger'" size="small">{{ r.status==='success'?'成功':'失败' }}</el-tag>
+                <span class="hint">{{ r.elapsed_seconds?.toFixed(0) }}s · {{ r.stocks_scanned }}只 · {{ r.buy_signals || 0 }}信号</span>
+              </div>
+              <div class="log-mini" v-if="taskStatus.run_history.length > 3">
+                <span class="hint">... 更多 见下方运行历史表</span>
+              </div>
+            </template>
+            <div v-else class="hint">暂无自动运行记录</div>
+          </el-tab-pane>
+          <el-tab-pane label="手动运行" name="manual">
+            <template v-if="taskStatus?.manual_history?.length">
+              <div v-for="r in taskStatus.manual_history.slice(0,5)" :key="r.time" class="log-mini">
+                <span>{{ r.time?.slice(0,19)?.replace('T',' ') }}</span>
+                <el-tag :type="r.status==='success'?'success':'danger'" size="small">{{ r.status==='success'?'success':'fail' }}</el-tag>
+                <span class="hint">{{ r.elapsed_seconds?.toFixed(0) }}s · {{ r.stocks_scanned }}只</span>
+              </div>
+            </template>
+            <div v-else class="hint">暂无手动运行记录</div>
+          </el-tab-pane>
+          <el-tab-pane label="邮件" name="mail">
+            <div class="log-mini"><span>状态</span><el-tag :type="emailEnabled?'success':'info'" size="small">{{ emailEnabled ? '已开启' : '已关闭' }}</el-tag></div>
+            <div class="log-mini"><span>收件人</span><span>{{ taskStatus?.email_info?.recipient || '-' }}</span></div>
+            <div class="log-mini"><span>SMTP</span><span class="hint">{{ taskStatus?.email_info?.smtp_host }}:{{ taskStatus?.email_info?.smtp_port }}</span></div>
+          </el-tab-pane>
+        </el-tabs>
       </el-card>
 
       <!-- 全宽：边界配置 -->
@@ -220,24 +236,6 @@
           </el-table-column>
         </el-table>
       </el-card>
-
-      <!-- 快捷链接 -->
-      <el-card class="links-card">
-        <template #header>
-          <div class="card-header"><el-icon><Link /></el-icon><span>快捷操作</span></div>
-        </template>
-        <div class="links-grid">
-          <el-button text type="primary" @click="$router.push('/strategy/aggregation')">
-            策略聚合 → 加载最优参数
-          </el-button>
-          <el-button text type="success" @click="$router.push('/data/manage')">
-            数据管理 → 更新行情
-          </el-button>
-          <el-button text type="warning" @click="$router.push('/strategy/analysis')">
-            单策略分析 → 手动验证
-          </el-button>
-        </div>
-      </el-card>
     </div>
   </div>
 </template>
@@ -264,6 +262,9 @@ const selectedStrategies = ref<string[]>([])
 const aggStockCode = ref('')
 const aggRunning = ref(false)
 const aggResult = ref<any>(null)
+const configTime = ref('15:30')
+const savingConfig = ref(false)
+const resultTab = ref('auto')
 
 const bannerClass = computed(() => {
   if (taskStatus.value?.is_running) return 'running'
@@ -325,6 +326,9 @@ const loadStatus = async () => {
     const data = await dailyTaskAPI.getStatus()
     taskStatus.value = data
     emailEnabled.value = data.email_enabled
+    const h = String(data.config?.hour ?? 15).padStart(2, '0')
+    const m = String(data.config?.minute ?? 30).padStart(2, '0')
+    configTime.value = `${h}:${m}`
 
     // 运行中则启动轮询
     if (data.is_running && !pollTimer) {
@@ -392,7 +396,7 @@ import { watchlistAPI } from '@/api/watchlist'
 const boundsStock = ref('')
 const boundsTab = ref('agg')
 const boundsStrategy = ref('')
-const aggBounds = ref<Record<string, number[]>>({ buy_threshold: [0.3, 0.7], sell_threshold: [0.2, 0.6] })
+const aggBounds = ref<Record<string, number[]>>({ buy_threshold: [0.3, 0.7], sell_threshold: [0.2, 0.6], strategy_weight: [0.1, 2.0] })
 const strategyBounds = ref<Record<string, Record<string, number[]>>>({})
 const savingBounds = ref(false)
 const watchlistCodes = ref<Array<{code:string;name:string}>>([])
