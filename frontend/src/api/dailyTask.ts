@@ -67,7 +67,7 @@ export const dailyTaskAPI = {
   optimizeAggregation: async (stockCode: string, strategyNames?: string[]): Promise<any> => {
     const response = await apiClient.post('/api/admin/daily-task/optimize-aggregation', {
       stock_code: stockCode, strategy_names: strategyNames,
-    })
+    }, { timeout: 600000 }) // 10分钟超时，聚合优化耗时长
     return response.data
   },
 
