@@ -340,10 +340,10 @@ class BatchOptimizer:
         ]
 
         def objective(solution):
-            *w_vals, bt, st = solution
+            *w_vals, bt, st = [float(v) for v in solution]
             # 约束: buy > sell
             if bt <= st:
-                return -10
+                return -10.0
 
             weights = dict(zip(active_names, w_vals))
             total_weight = sum(abs(w) for w in weights.values()) or 1.0
@@ -375,17 +375,17 @@ class BatchOptimizer:
         try:
             problem = {
                 "obj_func": objective,
-                "bounds": FloatVar(lb=0.1, ub=2.0),
+                "bounds": vars_bounds,
                 "minmax": "max",
                 "verbose": False,
             }
-            model = PSO.BasePSO(
+            model = PSO.OriginalPSO(
                 epoch=self.WEIGHT_PSO_ITERATIONS,
                 pop_size=self.WEIGHT_PSO_PARTICLES,
             )
             g_best = model.solve(problem)
 
-            *w_best, bt_best, st_best = g_best.solution
+            *w_best, bt_best, st_best = [float(v) for v in g_best.solution]
             best_weights = dict(zip(active_names, w_best))
 
             # 归一化权重到 [0.1, 2.0]
