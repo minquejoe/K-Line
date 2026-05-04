@@ -339,6 +339,9 @@ class BatchOptimizer:
             FloatVar(lb=0.2, ub=0.6, name="sell_threshold"),
         ]
 
+        # 计算最佳单策略 Sharpe 作为 baseline（聚合必须优于它）
+        best_single_sharpe = max((r.best_score or 0 for r in param_results if r.error is None), default=0.0)
+
         def objective(solution):
             *w_vals, bt, st = [float(v) for v in solution]
             # 约束: buy > sell
@@ -368,7 +371,11 @@ class BatchOptimizer:
 
             try:
                 stats = self.statistics.calculate_statistics(data, result_df)
-                return stats.get("sharpe_ratio", -10) or -10
+                agg_sharpe = stats.get("sharpe_ratio", -10) or -10
+                # 惩罚：聚合 Sharpe 必须比最佳单策略高至少 2%
+                if agg_sharpe < best_single_sharpe * 1.02:
+                    return agg_sharpe - (best_single_sharpe * 1.02 - agg_sharpe) * 5
+                return agg_sharpe
             except Exception:
                 return -10
 
@@ -478,7 +485,7 @@ class BatchOptimizer:
                 self.storage.save_param_set(
                     stock_code=stock_code,
                     strategy_name=r.strategy_name,
-                    name=f"auto_{now[:10]}",
+                    name=f"auto_{now[:10]}_{now[11:19].replace(':','')}",
                     params=r.optimal_params,
                     description=f"每日自动优化 (Sharpe={r.best_score:.3f})",
                     target_metric=r.target_metric,
@@ -497,7 +504,7 @@ class BatchOptimizer:
                 self.storage.save_param_set(
                     stock_code=stock_code,
                     strategy_name="__aggregation_weights__",
-                    name=f"auto_{now[:10]}",
+                    name=f"auto_{now[:10]}_{now[11:19].replace(':','')}",
                     params=weight_result.weights,
                     description=f"自动权重优化 (Sharpe={weight_result.best_sharpe:.3f})",
                     target_metric="sharpe_ratio",
@@ -526,7 +533,7 @@ class BatchOptimizer:
         if not weight_result or not weight_result.weights or weight_result.error:
             return None
 
-        now = datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         strategies_list = []
         required_names = []
 

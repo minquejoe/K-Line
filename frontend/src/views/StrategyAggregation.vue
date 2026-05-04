@@ -546,7 +546,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ArrowDown, Search, DataAnalysis, Collection, Star, StarFilled, QuestionFilled, Download, Delete, FolderOpened, FolderAdd } from '@element-plus/icons-vue'
 import { useDark } from '@vueuse/core'
@@ -1034,32 +1034,31 @@ const applyParamSet = (strategyName: string, set: ParamSet) => {
 }
 
 const loadScheme = (scheme: AggregationScheme) => {
-  // 1. Set strategies
+  // 1. Set strategies (triggers handleStrategiesChange)
   aggregationForm.strategy_names = scheme.strategies.map(s => s.name)
   
-  // 2. Set weights and params
-  scheme.strategies.forEach(s => {
-    strategyWeightsMap[s.name] = s.weight
-    strategyParamsMap[s.name] = s.params
-  })
-  
-  // 3. Set thresholds
+  // 2. Set thresholds
   aggregationSettings.buy_threshold = scheme.buy_threshold
   aggregationSettings.sell_threshold = scheme.sell_threshold
   aggregationSettings.required_strategies = scheme.required_strategies
 
-  // 4. Auto-select stock code（加载聚合方案时自动选中股票）
+  // 3. Auto-select stock code
   if (scheme.stock_code) {
     aggregationForm.stock_code = scheme.stock_code
     handleStockChange(scheme.stock_code)
   }
 
-  // 5. Ensure param descriptions are loaded for display
-  scheme.strategies.forEach(s => {
-    if (!strategyParamDescsMap[s.name]) {
-      loadStrategyParams(s.name) 
-      ensureStrategyInfo(s.name)
-    }
+  // 4. Set weights & params AFTER Vue reactivity settles
+  //    (handleStrategiesChange is async and resets strategyParamsMap)
+  nextTick(() => {
+    scheme.strategies.forEach(s => {
+      strategyWeightsMap[s.name] = s.weight
+      strategyParamsMap[s.name] = { ...s.params }
+      if (!strategyParamDescsMap[s.name]) {
+        loadStrategyParams(s.name)
+        ensureStrategyInfo(s.name)
+      }
+    })
   })
   
   ElMessage.success(`已加载方案: ${scheme.name}`)
