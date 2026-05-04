@@ -1049,17 +1049,18 @@ const loadScheme = (scheme: AggregationScheme) => {
   }
 
   // 4. Set weights & params AFTER Vue reactivity settles
-  //    (handleStrategiesChange is async and resets strategyParamsMap)
-  nextTick(() => {
+  //    Use setTimeout+nextTick to ensure handleStrategiesChange async settles first,
+  //    then set params without triggering loadStrategyParams which would override them.
+  setTimeout(() => {
     scheme.strategies.forEach(s => {
       strategyWeightsMap[s.name] = s.weight
       strategyParamsMap[s.name] = { ...s.params }
+      // 只加载描述，不加载参数（避免覆盖 scheme 中的最优参数）
       if (!strategyParamDescsMap[s.name]) {
-        loadStrategyParams(s.name)
-        ensureStrategyInfo(s.name)
+        loadDescriptionsOnly(s.name)
       }
     })
-  })
+  }, 300)
   
   ElMessage.success(`已加载方案: ${scheme.name}`)
 }
@@ -1079,6 +1080,18 @@ const ensureStrategyInfo = async (strategyName: string) => {
     try {
         const info = await strategyAPI.getStrategyInfo(strategyName)
         strategyParamDescsMap[strategyName] = info.parameter_descriptions || {}
+    } catch(e) { /* ignore */ }
+}
+
+/** 只加载策略描述，不修改已设置的参数值（供 loadScheme 使用） */
+const loadDescriptionsOnly = async (strategyName: string) => {
+    try {
+        const info = await strategyAPI.getStrategyInfo(strategyName)
+        const descs = info.parameter_descriptions || {}
+        Object.keys(strategyParamsMap[strategyName] || {}).forEach(key => {
+            if (!descs[key]) descs[key] = key
+        })
+        strategyParamDescsMap[strategyName] = descs
     } catch(e) { /* ignore */ }
 }
 

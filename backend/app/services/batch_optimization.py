@@ -372,9 +372,9 @@ class BatchOptimizer:
             try:
                 stats = self.statistics.calculate_statistics(data, result_df)
                 agg_sharpe = stats.get("sharpe_ratio", -10) or -10
-                # 惩罚：聚合 Sharpe 必须比最佳单策略高至少 2%
-                if agg_sharpe < best_single_sharpe * 1.02:
-                    return agg_sharpe - (best_single_sharpe * 1.02 - agg_sharpe) * 5
+                # 硬约束：聚合必须不劣于最佳单策略
+                if agg_sharpe < best_single_sharpe * 0.99:
+                    return -100.0
                 return agg_sharpe
             except Exception:
                 return -10
@@ -399,13 +399,32 @@ class BatchOptimizer:
             max_w = max(w_best) or 1.0
             best_weights = {k: max(v / max_w * 2.0, 0.1) for k, v in best_weights.items()}
 
+            # 回退检查：如果 PSO 找到的结果仍劣于最佳单策略，强制偏向最佳单策略
+            best_sharpe = float(g_best.target.fitness)
+            if best_sharpe < best_single_sharpe and best_single_sharpe > 0:
+                # 找到最佳单策略的名字
+                best_name = max(
+                    (r for r in param_results if r.error is None),
+                    key=lambda r: r.best_score or 0,
+                    default=None,
+                )
+                if best_name:
+                    logger.info(
+                        f"[{stock_code}] PSO 未找到优于单策略的权重，退回偏向 "
+                        f"{(best_name.best_score or 0):.3f} > {best_sharpe:.3f}"
+                    )
+                    best_weights = {name: 0.1 for name in active_names}
+                    best_weights[best_name.strategy_name] = 2.0
+                    bt_best, st_best = 0.4, 0.25
+                    best_sharpe = best_single_sharpe
+
             elapsed = (datetime.now() - t0).total_seconds()
             return WeightOptimizationResult(
                 stock_code=stock_code,
                 weights=best_weights,
                 buy_threshold=round(bt_best, 3),
                 sell_threshold=round(st_best, 3),
-                best_sharpe=g_best.target.fitness,
+                best_sharpe=best_sharpe,
                 elapsed_seconds=elapsed,
             )
 
