@@ -78,7 +78,7 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/yourusername/K-Line.git
+git clone https://github.com/minquejoe/K-Line.git
 cd K-Line
 
 # 2. 配置环境变量
