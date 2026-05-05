@@ -166,9 +166,10 @@ class PostgresStorage(DataStorage):
             metadata,
             Column("id", Integer, primary_key=True, autoincrement=True),
             Column("username", String(50), nullable=False, unique=True),
-            Column("password_hash", String(255), nullable=False),
-            Column("email", String(255)),
+            Column("email", String(255), nullable=False, unique=True),
+            Column("hashed_password", String(255), nullable=False),
             Column("role", String(20), default="user"),
+            Column("max_watchlist_count", Integer, default=20),
             Column("is_active", Integer, default=1),
             Column("created_at", String(20), nullable=False),
             Column("updated_at", String(20)),
@@ -231,6 +232,57 @@ class PostgresStorage(DataStorage):
             for idx_sql in indexes:
                 conn.execute(text(idx_sql))
             conn.commit()
+
+            # ── 迁移：修复旧 schema（password_hash → hashed_password） ──
+            try:
+                result = conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'users' AND column_name = 'password_hash'"
+                )).fetchone()
+                if result:
+                    conn.execute(text(
+                        "ALTER TABLE users RENAME COLUMN password_hash TO hashed_password"
+                    ))
+                    conn.commit()
+                    logger.info("已迁移列 password_hash → hashed_password")
+            except Exception:
+                pass  # 忽略迁移错误（可能已修复或无数据）
+
+            # ── 迁移：添加缺失的 max_watchlist_count 列 ──
+            try:
+                result = conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'users' AND column_name = 'max_watchlist_count'"
+                )).fetchone()
+                if not result:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN max_watchlist_count INTEGER DEFAULT 20"
+                    ))
+                    conn.commit()
+                    logger.info("已添加列 max_watchlist_count")
+            except Exception:
+                pass
+
+            # 创建默认管理员用户（如果不存在）
+            from datetime import datetime, timezone
+            from backend.app.utils.security import get_password_hash
+            result = conn.execute(
+                text("SELECT id FROM users WHERE username = 'admin'")
+            ).fetchone()
+            if not result:
+                now = datetime.now(timezone.utc).isoformat()
+                admin_hash = get_password_hash("admin")
+                conn.execute(
+                    text(
+                        "INSERT INTO users (username, email, hashed_password, role, "
+                        "max_watchlist_count, is_active, created_at) "
+                        "VALUES (:u, :e, :p, :r, :m, :a, :t)"
+                    ),
+                    {"u": "admin", "e": "admin@example.com", "p": admin_hash,
+                     "r": "admin", "m": 100, "a": 1, "t": now},
+                )
+                conn.commit()
+                logger.info("默认管理员用户已创建 (username: admin, password: admin)")
 
         logger.info("PostgreSQL 表结构初始化完成")
 
