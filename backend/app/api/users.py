@@ -84,7 +84,7 @@ async def update_user(
         
     if user_update.is_active is not None:
         update_fields.append("is_active = ?")
-        params.append(user_update.is_active)
+        params.append(1 if user_update.is_active else 0)
         
     if user_update.password is not None:
         update_fields.append("hashed_password = ?")
@@ -106,6 +106,11 @@ async def update_user(
         (user_id,),
     )
     row = cursor.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户不存在",
+        )
     return UserResponse(
         id=row[0],
         username=row[1],

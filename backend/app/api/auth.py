@@ -257,7 +257,7 @@ async def register(
             hashed_password,
             user_data.role,
             max_watchlist_count,
-            True,
+            1,  # is_active
             datetime.now(timezone.utc).isoformat(),
         ),
     )
