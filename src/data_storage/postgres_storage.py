@@ -611,21 +611,25 @@ class PostgresStorage(DataStorage):
     def save_aggregation_scheme(
         self,
         name: str,
-        strategies: str,
-        weights: str,
         description: str = "",
+        stock_code: str = "",
+        strategies: Any = None,
         buy_threshold: float = 0.5,
         sell_threshold: float = -0.5,
+        required_strategies: Any = None,
     ) -> Optional[int]:
-        """保存聚合方案"""
+        """保存聚合方案（与 SQLite 版兼容）"""
+        import json
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        strategies_json = json.dumps(strategies, ensure_ascii=False) if strategies else "[]"
+        required_json = json.dumps(required_strategies, ensure_ascii=False) if required_strategies else "[]"
         with self._get_connection() as conn:
             result = conn.execute(
                 text("""
                     INSERT INTO aggregation_schemes
                         (name, description, strategies, weights, buy_threshold,
                          sell_threshold, created_at, updated_at)
-                    VALUES (:name, :description, :strategies, :weights, :buy_threshold,
+                    VALUES (:name, :desc, :strategies, :weights, :buy_threshold,
                             :sell_threshold, :created_at, :updated_at)
                     ON CONFLICT (name) DO UPDATE SET
                         description = EXCLUDED.description,
@@ -638,9 +642,9 @@ class PostgresStorage(DataStorage):
                 """),
                 {
                     "name": name,
-                    "description": description,
-                    "strategies": strategies,
-                    "weights": weights,
+                    "desc": description,
+                    "strategies": strategies_json,
+                    "weights": required_json,
                     "buy_threshold": buy_threshold,
                     "sell_threshold": sell_threshold,
                     "created_at": now,
@@ -648,15 +652,49 @@ class PostgresStorage(DataStorage):
                 },
             )
             conn.commit()
-            return result.fetchone()[0]
+            row = result.fetchone()
+            return row[0] if row else None
 
-    def get_aggregation_schemes(self) -> List[Dict[str, Any]]:
-        """获取所有聚合方案"""
+    def get_aggregation_schemes(self, stock_code: Optional[str] = None) -> List[Dict[str, Any]]:
+        """获取聚合方案列表（与 SQLite 版兼容）"""
+        import json
         with self._get_connection() as conn:
-            rows = conn.execute(
-                text("SELECT * FROM aggregation_schemes ORDER BY created_at DESC")
-            ).fetchall()
-            return [dict(row._mapping) for row in rows]
+            if stock_code:
+                rows = conn.execute(
+                    text(
+                        "SELECT * FROM aggregation_schemes "
+                        "WHERE name LIKE :pattern OR strategies LIKE :pattern "
+                        "ORDER BY created_at DESC"
+                    ),
+                    {"pattern": f"%{stock_code}%"},
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    text("SELECT * FROM aggregation_schemes ORDER BY created_at DESC")
+                ).fetchall()
+
+            result = []
+            for row in rows:
+                rm = dict(row._mapping)
+                # 解析 JSON 字段
+                try:
+                    rm["strategies"] = json.loads(rm.get("strategies", "[]"))
+                except (json.JSONDecodeError, TypeError):
+                    rm["strategies"] = []
+                try:
+                    rm["weights"] = json.loads(rm.get("weights", "[]"))
+                except (json.JSONDecodeError, TypeError):
+                    rm["weights"] = []
+                # 向后兼容：提取 stock_code 和 required_strategies
+                if not rm.get("stock_code"):
+                    # 从 name 中提取 stock_code（格式：auto_STOCKCODE_timestamp）
+                    name_parts = rm.get("name", "").split("_")
+                    if len(name_parts) >= 2:
+                        rm["stock_code"] = name_parts[1]
+                if "required_strategies" not in rm:
+                    rm["required_strategies"] = rm.get("weights", [])
+                result.append(rm)
+            return result
 
     def get_aggregation_scheme_by_id(self, scheme_id: int) -> Optional[Dict[str, Any]]:
         """根据ID获取聚合方案"""

@@ -115,8 +115,8 @@
             <el-option v-for="c in watchlistCodes" :key="c.code" :label="`${c.code} ${c.name}`" :value="c.code" />
           </el-select>
         </div>
-        <el-button type="success" :loading="aggRunning" @click="handleAggOptimize" style="margin-top:8px;width:100%">
-          <el-icon><VideoPlay /></el-icon> 运行聚合优化
+        <el-button type="success" :loading="aggRunning" :disabled="aggRunning" @click="handleAggOptimize" style="margin-top:8px;width:100%">
+          <el-icon><VideoPlay /></el-icon> {{ aggRunning ? '聚合优化运行中...' : '运行聚合优化' }}
         </el-button>
         <div v-if="aggResult" class="agg-result" :class="aggResult.status">
           <template v-if="aggResult.status==='success'">
