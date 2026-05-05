@@ -4,8 +4,7 @@
 使用工厂函数模式，根据配置自动选择存储后端。
 """
 
-from typing import Generator, Union
-from contextlib import contextmanager
+from typing import Generator, Union, Any, List, Tuple
 
 from backend.app.config import settings
 
@@ -34,20 +33,149 @@ def get_storage():
         return SQLiteStorage(database_path=str(settings.DATABASE_PATH))
 
 
+# ────────────── PostgreSQL 兼容包装器 ──────────────
+
+
+class PgRow:
+    """模拟 sqlite3.Row，同时支持 dict() 转换和索引访问"""
+
+    def __init__(self, keys: Tuple[str, ...], values: Tuple[Any, ...]):
+        self._keys = keys
+        self._values = values
+
+    def keys(self):
+        return list(self._keys)
+
+    def __getitem__(self, idx):
+        if isinstance(idx, int):
+            return self._values[idx]
+        return self._values[self._keys.index(idx)]
+
+    def __iter__(self):
+        return iter(self._keys)
+
+    def __len__(self):
+        return len(self._values)
+
+    def __repr__(self):
+        return f"PgRow({dict(zip(self._keys, self._values))})"
+
+
+class PgCursor:
+    """模拟 sqlite3.Cursor，基于 SQLAlchemy 连接"""
+
+    def __init__(self, connection):
+        self._connection = connection
+        self._keys: Tuple[str, ...] = ()
+        self._rows: List[PgRow] = []
+        self.lastrowid: int = 0
+        self.rowcount: int = 0
+
+    def execute(self, sql: str, params: Union[Tuple, List, dict, None] = None):
+        """执行 SQL，将 ? 占位符转换为 %s，INSERT 自动追加 RETURNING id"""
+        pg_sql = sql.replace("?", "%s")
+        # 检测 INSERT 语句，自动追加 RETURNING id 以支持 lastrowid
+        is_insert = pg_sql.strip().upper().startswith("INSERT")
+        if is_insert and "RETURNING" not in pg_sql.upper():
+            pg_sql = pg_sql.rstrip(";") + " RETURNING id"
+        result = self._connection.execute(pg_sql, params or ())
+        if result.returns_rows:
+            keys = tuple(result.keys())
+            fetched = result.fetchall()
+            rows = [PgRow(keys, tuple(row)) for row in fetched]
+            self._keys = keys
+            self._rows = rows
+            self.rowcount = len(rows)
+            # 获取 lastrowid（来自 RETURNING id 或查询结果的 id 列）
+            if fetched and 'id' in keys:
+                self.lastrowid = fetched[-1][keys.index('id')]
+        else:
+            self._keys = ()
+            self._rows = []
+            self.rowcount = result.rowcount if hasattr(result, 'rowcount') else 0
+        return self
+
+    def executemany(self, sql: str, params_list: List[Tuple]):
+        """批量执行"""
+        pg_sql = sql.replace("?", "%s")
+        for params in params_list:
+            self._connection.execute(pg_sql, params)
+        self.rowcount = len(params_list)
+        return self
+
+    def fetchone(self):
+        if self._rows:
+            return self._rows.pop(0)
+        return None
+
+    def fetchall(self):
+        rows = self._rows[:]
+        self._rows = []
+        return rows
+
+    def close(self):
+        pass
+
+
+class PgConnection:
+    """模拟 sqlite3.Connection，基于 SQLAlchemy 连接"""
+
+    def __init__(self, sqlalchemy_conn):
+        self._conn = sqlalchemy_conn
+
+    def cursor(self):
+        return PgCursor(self._conn)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
+# ────────────── 数据库连接工厂 ──────────────
+
+_pg_storage_cache: Any = None
+
+
+def _get_pg_storage():
+    """获取缓存的 PostgresStorage 实例（复用连接池）"""
+    global _pg_storage_cache
+    if _pg_storage_cache is None:
+        from src.data_storage.postgres_storage import PostgresStorage
+        _pg_storage_cache = PostgresStorage(
+            database_url=settings.DATABASE_URL,
+            pool_size=settings.DB_POOL_SIZE,
+            max_overflow=settings.DB_MAX_OVERFLOW,
+        )
+    return _pg_storage_cache
+
+
 def get_db() -> Generator:
     """
-    获取数据库连接（向后兼容，仅用于 sqlite 场景）
+    获取数据库连接（兼容 sqlite3 和 PostgreSQL）
 
-    对于 PostgreSQL，使用 get_storage() 代替。
+    自动根据 DATABASE_TYPE 选择后端，对外暴露统一的 cursor/execute/fetchone 接口。
     """
     if settings.DATABASE_TYPE == "postgresql":
-        raise RuntimeError(
-            "get_db() 不适用于 PostgreSQL 模式，请使用 get_storage()"
-        )
-    import sqlite3
-    conn = sqlite3.connect(str(settings.DATABASE_PATH), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
+        storage = _get_pg_storage()
+        with storage._get_connection() as raw_conn:
+            conn = PgConnection(raw_conn)
+            try:
+                yield conn
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+    else:
+        import sqlite3
+        conn = sqlite3.connect(str(settings.DATABASE_PATH), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
