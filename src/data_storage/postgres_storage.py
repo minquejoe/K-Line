@@ -107,7 +107,7 @@ class PostgresStorage(DataStorage):
             Column("pct_chg", Float, comment="涨跌幅"),
             Column("change", Float, comment="涨跌额"),
             Column("turnover", Float, comment="换手率"),
-            Column("update_time", String(20), nullable=False, comment="更新时间"),
+            Column("update_time", String(32), nullable=False, comment="更新时间"),
             UniqueConstraint("stock_code", "trade_date", name="uq_stock_date"),
         )
 
@@ -119,7 +119,7 @@ class PostgresStorage(DataStorage):
             Column("stock_code", String(10), nullable=False),
             Column("strategy_name", String(100), nullable=False),
             Column("params", String, nullable=False),
-            Column("update_time", String(20), nullable=False),
+            Column("update_time", String(32), nullable=False),
             UniqueConstraint("stock_code", "strategy_name", name="uq_strategy_params"),
         )
 
@@ -140,7 +140,7 @@ class PostgresStorage(DataStorage):
             Column("num_particles", Integer),
             Column("max_iter", Integer),
             Column("date_range", String(100)),
-            Column("created_at", String(20), nullable=False),
+            Column("created_at", String(32), nullable=False),
             Column("is_default", Integer, default=0),
             UniqueConstraint("stock_code", "strategy_name", "name", name="uq_param_set"),
         )
@@ -156,8 +156,8 @@ class PostgresStorage(DataStorage):
             Column("weights", String, nullable=False),
             Column("buy_threshold", Float, default=0.5),
             Column("sell_threshold", Float, default=-0.5),
-            Column("created_at", String(20), nullable=False),
-            Column("updated_at", String(20)),
+            Column("created_at", String(32), nullable=False),
+            Column("updated_at", String(32)),
         )
 
         # 用户表
@@ -171,8 +171,8 @@ class PostgresStorage(DataStorage):
             Column("role", String(20), default="user"),
             Column("max_watchlist_count", Integer, default=20),
             Column("is_active", Integer, default=1),
-            Column("created_at", String(20), nullable=False),
-            Column("updated_at", String(20)),
+            Column("created_at", String(32), nullable=False),
+            Column("updated_at", String(32)),
         )
 
         # 自定义策略表
@@ -189,8 +189,8 @@ class PostgresStorage(DataStorage):
             Column("file_path", String(500)),
             Column("is_public", Integer, default=0),
             Column("is_system", Integer, default=0),
-            Column("created_at", String(20), nullable=False),
-            Column("updated_at", String(20)),
+            Column("created_at", String(32), nullable=False),
+            Column("updated_at", String(32)),
         )
 
         # 审计日志表
@@ -202,7 +202,7 @@ class PostgresStorage(DataStorage):
             Column("action", String(200), nullable=False),
             Column("details", String),
             Column("ip_address", String(50)),
-            Column("created_at", String(20), nullable=False),
+            Column("created_at", String(32), nullable=False),
         )
 
         # 自选股表
@@ -214,7 +214,7 @@ class PostgresStorage(DataStorage):
             Column("stock_code", String(10), nullable=False),
             Column("stock_name", String(100)),
             Column("notes", String(500)),
-            Column("created_at", String(20), nullable=False),
+            Column("created_at", String(32), nullable=False),
             UniqueConstraint("user_id", "stock_code", name="uq_watchlist_user_stock"),
         )
 
