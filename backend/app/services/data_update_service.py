@@ -8,6 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import text
 
 from backend.app.dependencies import get_storage
+from backend.app.config import settings
 from backend.app.services.data_service import DataService
 from src.utils.logger import get_logger
 
