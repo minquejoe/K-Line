@@ -8,6 +8,7 @@ export interface DataUpdateConfig {
   auto_update_enabled: boolean
   daily_update_hour: number
   daily_update_minute: number
+  daily_update_watchlist_only: boolean
   stock_list_update_enabled: boolean
   stock_list_update_hour: number
   stock_list_update_minute: number

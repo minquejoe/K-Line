@@ -25,7 +25,7 @@
               @change="handleConfigChange"
               :disabled="!isAdmin"
             />
-            <span class="form-tip">开启后将在指定时间自动更新所有股票的日K线数据</span>
+            <span class="form-tip">开启后将在指定时间自动更新日K线数据</span>
           </el-form-item>
 
           <el-form-item
@@ -40,6 +40,18 @@
               :disabled="!isAdmin"
             />
             <span class="form-tip">交易日结束后执行（建议：15:30）</span>
+          </el-form-item>
+
+          <el-form-item
+            v-if="config.auto_update_enabled"
+            label="仅更新自选股"
+          >
+            <el-switch
+              v-model="config.daily_update_watchlist_only"
+              @change="handleConfigChange"
+              :disabled="!isAdmin"
+            />
+            <span class="form-tip">开启后仅更新收藏/自选股票的数据，不更新全部股票</span>
           </el-form-item>
 
           <!-- 股票列表自动更新 -->
@@ -235,6 +247,7 @@ const config = ref<DataUpdateConfig>({
   auto_update_enabled: false,
   daily_update_hour: 15,
   daily_update_minute: 30,
+  daily_update_watchlist_only: false,
   stock_list_update_enabled: false,
   stock_list_update_hour: 9,
   stock_list_update_minute: 0,

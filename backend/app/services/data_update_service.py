@@ -81,6 +81,7 @@ class DataUpdateService:
             "auto_update_enabled": self._get_config("auto_update_enabled", "false").lower() == "true",
             "daily_update_hour": int(self._get_config("daily_update_hour", str(settings.DAILY_DATA_FETCH_HOUR))),
             "daily_update_minute": int(self._get_config("daily_update_minute", str(settings.DAILY_DATA_FETCH_MINUTE))),
+            "daily_update_watchlist_only": self._get_config("daily_update_watchlist_only", "false").lower() == "true",
             "stock_list_update_enabled": self._get_config("stock_list_update_enabled", "false").lower() == "true",
             "stock_list_update_hour": int(self._get_config("stock_list_update_hour", "9")),
             "stock_list_update_minute": int(self._get_config("stock_list_update_minute", "0")),
@@ -145,9 +146,18 @@ class DataUpdateService:
         """日K线数据更新任务"""
         logger.info("开始执行日K线数据自动更新任务")
         try:
-            # 获取所有股票代码
-            df = self.data_service.get_stock_list(market="all", force_from_api=False)
-            codes = df["code"].tolist()
+            config = self.get_config()
+            watchlist_only = config.get("daily_update_watchlist_only", False)
+            
+            if watchlist_only:
+                # 仅更新自选股
+                codes = self._get_watchlist_stock_codes()
+                logger.info(f"仅更新自选股模式，共 {len(codes)} 只")
+            else:
+                # 更新全部股票
+                df = self.data_service.get_stock_list(market="all", force_from_api=False)
+                codes = df["code"].tolist() if not df.empty else []
+                logger.info(f"更新全部股票，共 {len(codes)} 只")
             
             success_count = 0
             for code in codes:
@@ -162,6 +172,19 @@ class DataUpdateService:
             logger.info(f"日K线数据自动更新完成，成功 {success_count}/{len(codes)} 只")
         except Exception as e:
             logger.error(f"日K线数据自动更新任务失败: {e}", exc_info=True)
+    
+    def _get_watchlist_stock_codes(self) -> list:
+        """获取所有用户的去重自选股代码"""
+        try:
+            storage = get_storage()
+            with storage._get_connection() as conn:
+                result = conn.execute(
+                    text("SELECT DISTINCT stock_code FROM watchlist")
+                )
+                return [row[0] for row in result.fetchall()]
+        except Exception as e:
+            logger.error(f"获取自选股列表失败: {e}")
+            return []
     
     async def _update_stock_list_job(self):
         """股票列表更新任务"""

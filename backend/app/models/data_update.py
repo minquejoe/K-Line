@@ -9,6 +9,7 @@ class DataUpdateConfig(BaseModel):
     auto_update_enabled: bool = False
     daily_update_hour: int = 15
     daily_update_minute: int = 30
+    daily_update_watchlist_only: bool = False
     stock_list_update_enabled: bool = False
     stock_list_update_hour: int = 9
     stock_list_update_minute: int = 0
@@ -19,6 +20,7 @@ class DataUpdateConfigUpdate(BaseModel):
     auto_update_enabled: Optional[bool] = None
     daily_update_hour: Optional[int] = None
     daily_update_minute: Optional[int] = None
+    daily_update_watchlist_only: Optional[bool] = None
     stock_list_update_enabled: Optional[bool] = None
     stock_list_update_hour: Optional[int] = None
     stock_list_update_minute: Optional[int] = None
