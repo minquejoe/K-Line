@@ -4,7 +4,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 import sys
 import pandas as pd
-import sqlite3
+from sqlalchemy import create_engine, text
 
 # 添加src目录到路径
 src_dir = Path(__file__).parent.parent
@@ -12,13 +12,9 @@ sys.path.insert(0, str(src_dir))
 
 from src.utils.logger import get_logger
 from src.config import settings
-# 在导入 akshare 之前先配置它
 from src.utils.akshare_config import ensure_akshare_configured
 
-# 确保 akshare 已配置
 ensure_akshare_configured()
-
-# 现在导入 akshare
 import akshare as ak
 
 logger = get_logger(__name__)
@@ -188,32 +184,35 @@ class StockListManager:
         
         return stock.iloc[0].to_dict()
     
+    def _get_engine(self):
+        """获取 SQLAlchemy 引擎"""
+        return create_engine(settings.get_database_path(), pool_pre_ping=True)
+
     def _init_stock_list_table(self) -> None:
         """初始化股票列表数据库表"""
         try:
-            database_path = settings.get_database_path()
-            conn = sqlite3.connect(database_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS stock_list (
-                    code TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    market TEXT NOT NULL,
-                    update_time TEXT NOT NULL
-                )
-            """)
-            conn.commit()
-            conn.close()
+            engine = self._get_engine()
+            with engine.connect() as conn:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS stock_list (
+                        code TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        market TEXT NOT NULL,
+                        update_time TEXT NOT NULL
+                    )
+                """))
+                conn.commit()
+            engine.dispose()
         except Exception as e:
             logger.error(f"初始化股票列表表失败: {e}", exc_info=True)
     
     def _load_from_database(self) -> Optional[pd.DataFrame]:
         """从数据库加载股票列表"""
         try:
-            database_path = settings.get_database_path()
-            conn = sqlite3.connect(database_path)
-            df = pd.read_sql_query("SELECT code, name, market FROM stock_list", conn)
-            conn.close()
+            engine = self._get_engine()
+            with engine.connect() as conn:
+                df = pd.read_sql_query("SELECT code, name, market FROM stock_list", conn)
+            engine.dispose()
             if not df.empty:
                 return df
             return None
@@ -225,23 +224,21 @@ class StockListManager:
         """保存股票列表到数据库"""
         try:
             from datetime import datetime
-            database_path = settings.get_database_path()
-            conn = sqlite3.connect(database_path)
-            cursor = conn.cursor()
-            
-            # 清空旧数据
-            cursor.execute("DELETE FROM stock_list")
-            
-            # 插入新数据
-            update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            for _, row in df.iterrows():
-                cursor.execute(
-                    "INSERT OR REPLACE INTO stock_list (code, name, market, update_time) VALUES (?, ?, ?, ?)",
-                    (row["code"], row["name"], row["market"], update_time)
-                )
-            
-            conn.commit()
-            conn.close()
+            engine = self._get_engine()
+            with engine.connect() as conn:
+                conn.execute(text("DELETE FROM stock_list"))
+                update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                for _, row in df.iterrows():
+                    conn.execute(
+                        text(
+                            "INSERT INTO stock_list (code, name, market, update_time) "
+                            "VALUES (:c, :n, :m, :t) "
+                            "ON CONFLICT (code) DO UPDATE SET name=:n, market=:m, update_time=:t"
+                        ),
+                        {"c": row["code"], "n": row["name"], "m": row["market"], "t": update_time},
+                    )
+                conn.commit()
+            engine.dispose()
             logger.debug(f"股票列表已保存到数据库，共 {len(df)} 只股票")
         except Exception as e:
             logger.error(f"保存股票列表到数据库失败: {e}", exc_info=True)

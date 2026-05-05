@@ -80,9 +80,11 @@ class Settings:
     
     @classmethod
     def get_database_path(cls) -> str:
-        """获取数据库路径（字符串形式）"""
-        cls.DATABASE_DIR.mkdir(parents=True, exist_ok=True)
-        return str(cls.DATABASE_PATH)
+        """获取数据库连接字符串（PostgreSQL）"""
+        return os.getenv(
+            "DATABASE_URL",
+            "postgresql://kline_user:kline_pass@localhost:5432/kline_db",
+        )
     
     @classmethod
     def get_log_file_path(cls) -> str:

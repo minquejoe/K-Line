@@ -1,12 +1,13 @@
-"""数据更新服务：管理定时任务和手动更新"""
+"""数据更新服务：管理定时任务和手动更新（PostgreSQL）"""
 
-import sqlite3
 from typing import Optional, Dict
 from datetime import datetime, timezone
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from backend.app.config import settings
+from sqlalchemy import text
+
+from backend.app.dependencies import get_storage
 from backend.app.services.data_service import DataService
 from src.utils.logger import get_logger
 
@@ -26,29 +27,30 @@ class DataUpdateService:
     def _init_config_table(self):
         """初始化配置表"""
         try:
-            conn = sqlite3.connect(settings.DATABASE_PATH)
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS data_update_config (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    key TEXT UNIQUE NOT NULL,
-                    value TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
-            conn.commit()
-            conn.close()
+            storage = get_storage()
+            with storage._get_connection() as conn:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS data_update_config (
+                        id SERIAL PRIMARY KEY,
+                        key TEXT UNIQUE NOT NULL,
+                        value TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                """))
+                conn.commit()
         except Exception as e:
             logger.error(f"初始化配置表失败: {e}", exc_info=True)
     
     def _get_config(self, key: str, default: str) -> str:
         """获取配置值"""
         try:
-            conn = sqlite3.connect(settings.DATABASE_PATH)
-            cursor = conn.cursor()
-            cursor.execute("SELECT value FROM data_update_config WHERE key = ?", (key,))
-            row = cursor.fetchone()
-            conn.close()
+            storage = get_storage()
+            with storage._get_connection() as conn:
+                result = conn.execute(
+                    text("SELECT value FROM data_update_config WHERE key = :key"),
+                    {"key": key},
+                )
+                row = result.fetchone()
             return row[0] if row else default
         except Exception as e:
             logger.error(f"获取配置失败: {e}")
@@ -57,15 +59,18 @@ class DataUpdateService:
     def _set_config(self, key: str, value: str):
         """设置配置值"""
         try:
-            conn = sqlite3.connect(settings.DATABASE_PATH)
-            cursor = conn.cursor()
-            now = datetime.now(timezone.utc).isoformat()
-            cursor.execute(
-                "INSERT OR REPLACE INTO data_update_config (key, value, updated_at) VALUES (?, ?, ?)",
-                (key, value, now)
-            )
-            conn.commit()
-            conn.close()
+            storage = get_storage()
+            with storage._get_connection() as conn:
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    text(
+                        "INSERT INTO data_update_config (key, value, updated_at) "
+                        "VALUES (:key, :val, :ts) "
+                        "ON CONFLICT (key) DO UPDATE SET value = :val, updated_at = :ts"
+                    ),
+                    {"key": key, "val": value, "ts": now},
+                )
+                conn.commit()
         except Exception as e:
             logger.error(f"设置配置失败: {e}", exc_info=True)
     

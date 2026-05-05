@@ -1,79 +1,54 @@
-import sqlite3
+"""审计日志服务（PostgreSQL）"""
+
 from typing import List
 from datetime import datetime, timezone
-from backend.app.config import settings
+
+from sqlalchemy import text
+
+from backend.app.dependencies import get_storage
 from backend.app.models.audit_log import AuditLogCreate, AuditLogInfo
 
+
 class AuditLogService:
-    def _get_connection(self):
-        conn = sqlite3.connect(settings.DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
+    """审计日志服务，基于 PostgresStorage 连接池"""
 
     def create_table_if_not_exists(self):
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS audit_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    username TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    details TEXT,
-                    ip_address TEXT,
-                    created_at TEXT NOT NULL
-                )
-            """)
-            conn.commit()
-        finally:
-            conn.close()
+        """表由 PostgresStorage._init_tables() 自动创建，此方法保留兼容"""
+        pass
 
     def log_event(self, log_data: AuditLogCreate):
         """记录审计日志"""
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            created_at = datetime.now(timezone.utc).isoformat()
-            cursor.execute("""
-                INSERT INTO audit_logs (user_id, username, action, details, ip_address, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                log_data.user_id,
-                log_data.username,
-                log_data.action,
-                log_data.details,
-                log_data.ip_address,
-                created_at
-            ))
+        created_at = datetime.now(timezone.utc).isoformat()
+        storage = get_storage()
+        with storage._get_connection() as conn:
+            result = conn.execute(
+                text(
+                    "INSERT INTO audit_logs (user_id, username, action, details, ip_address, created_at) "
+                    "VALUES (:uid, :uname, :act, :det, :ip, :ts) RETURNING id"
+                ),
+                {"uid": log_data.user_id, "uname": log_data.username,
+                 "act": log_data.action, "det": log_data.details,
+                 "ip": log_data.ip_address, "ts": created_at},
+            )
             conn.commit()
-            return cursor.lastrowid
-        finally:
-            conn.close()
+            return result.fetchone()[0]
 
     def get_recent_logs(self, limit: int = 20) -> List[AuditLogInfo]:
         """获取最近的日志"""
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, user_id, username, action, details, ip_address, created_at
-                FROM audit_logs
-                ORDER BY created_at DESC
-                LIMIT ?
-            """, (limit,))
-            
+        storage = get_storage()
+        with storage._get_connection() as conn:
+            result = conn.execute(
+                text(
+                    "SELECT id, user_id, username, action, details, ip_address, created_at "
+                    "FROM audit_logs ORDER BY created_at DESC LIMIT :limit"
+                ),
+                {"limit": limit},
+            )
             logs = []
-            for row in cursor.fetchall():
+            for row in result.fetchall():
                 logs.append(AuditLogInfo(
-                    id=row['id'],
-                    user_id=row['user_id'],
-                    username=row['username'],
-                    action=row['action'],
-                    details=row['details'],
-                    ip_address=row['ip_address'],
-                    created_at=row['created_at']
+                    id=row[0], user_id=row[1], username=row[2],
+                    action=row[3], details=row[4], ip_address=row[5],
+                    created_at=row[6],
                 ))
             return logs
-        finally:
-            conn.close()
