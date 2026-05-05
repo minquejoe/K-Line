@@ -43,6 +43,7 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
+ARG CACHE_BUST=0
 COPY . .
 
 # Copy and configure entrypoint
