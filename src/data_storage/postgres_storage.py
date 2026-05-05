@@ -216,7 +216,6 @@ class PostgresStorage(DataStorage):
             Column("created_at", String(20), nullable=False),
             UniqueConstraint("user_id", "stock_code", name="uq_watchlist_user_stock"),
         )
-        )
 
         with self._get_connection() as conn:
             metadata.create_all(conn, checkfirst=True)
