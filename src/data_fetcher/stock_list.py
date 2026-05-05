@@ -65,29 +65,26 @@ class StockListManager:
                 logger.info(f"从数据库加载了 {len(self._stock_list_cache)} 只股票")
         
         # 如果缓存为空或强制从 API 获取，则从 akshare 获取
-        if self._stock_list_cache is None or self._stock_list_cache.empty or force_from_api:
+        if force_from_api or (self._stock_list_cache is None or self._stock_list_cache.empty):
             if force_from_api:
                 logger.info("管理员操作：从 akshare API 获取股票列表")
-            else:
-                logger.info("数据库中没有股票列表，从 akshare API 获取")
-            try:
-                self._stock_list_cache = self._fetch_stock_list("all")
-                # 保存到数据库
-                if not self._stock_list_cache.empty:
-                    self._save_to_database(self._stock_list_cache)
-                    logger.info(f"从 API 获取到 {len(self._stock_list_cache)} 只股票，已保存到数据库")
-            except Exception as e:
-                logger.error(f"从 API 获取股票列表失败: {e}")
-                # 如果 API 失败，尝试从数据库读取（即使可能为空）
-                if self._stock_list_cache is None or self._stock_list_cache.empty:
+                try:
+                    self._stock_list_cache = self._fetch_stock_list("all")
+                    if not self._stock_list_cache.empty:
+                        self._save_to_database(self._stock_list_cache)
+                        logger.info(f"从 API 获取到 {len(self._stock_list_cache)} 只股票，已保存到数据库")
+                except Exception as e:
+                    logger.error(f"从 API 获取股票列表失败: {e}")
                     df_db = self._load_from_database()
                     if df_db is not None and not df_db.empty:
                         self._stock_list_cache = df_db
                         logger.warning("API 获取失败，使用数据库中的旧数据")
                     else:
-                        # 如果数据库也为空，返回空 DataFrame
-                        logger.error("数据库和 API 都无法获取股票列表")
                         return pd.DataFrame(columns=["code", "name", "market"])
+            else:
+                # 非管理员不触发 API 调用，返回空列表
+                logger.info("数据库中没有股票列表，返回空（需管理员刷新）")
+                self._stock_list_cache = pd.DataFrame(columns=["code", "name", "market"])
         
         # 根据市场类型过滤
         df = self._stock_list_cache.copy()

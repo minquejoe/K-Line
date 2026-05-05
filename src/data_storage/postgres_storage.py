@@ -198,6 +198,7 @@ class PostgresStorage(DataStorage):
             "audit_logs",
             metadata,
             Column("id", Integer, primary_key=True, autoincrement=True),
+            Column("user_id", Integer),
             Column("username", String(100), nullable=False),
             Column("action", String(200), nullable=False),
             Column("details", String),
@@ -260,6 +261,21 @@ class PostgresStorage(DataStorage):
                     ))
                     conn.commit()
                     logger.info("已添加列 max_watchlist_count")
+            except Exception:
+                pass
+
+            # ── 迁移：添加缺失的 audit_logs.user_id 列 ──
+            try:
+                result = conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'audit_logs' AND column_name = 'user_id'"
+                )).fetchone()
+                if not result:
+                    conn.execute(text(
+                        "ALTER TABLE audit_logs ADD COLUMN user_id INTEGER"
+                    ))
+                    conn.commit()
+                    logger.info("已添加列 audit_logs.user_id")
             except Exception:
                 pass
 
