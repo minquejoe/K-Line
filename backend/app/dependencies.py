@@ -4,7 +4,10 @@
 使用工厂函数模式，根据配置自动选择存储后端。
 """
 
+import re
 from typing import Generator, Union, Any, List, Tuple
+
+from sqlalchemy import text
 
 from backend.app.config import settings
 
@@ -72,13 +75,31 @@ class PgCursor:
         self.rowcount: int = 0
 
     def execute(self, sql: str, params: Union[Tuple, List, dict, None] = None):
-        """执行 SQL，将 ? 占位符转换为 %s，INSERT 自动追加 RETURNING id"""
-        pg_sql = sql.replace("?", "%s")
-        # 检测 INSERT 语句，自动追加 RETURNING id 以支持 lastrowid
+        """执行 SQL，将 ? 占位符转换为 SQLAlchemy :param 格式"""
+        # 将 ? 替换为 :p0, :p1, ... 递增命名参数
+        counter = [0]
+        def replace_q(m):
+            name = f"p{counter[0]}"
+            counter[0] += 1
+            return f":{name}"
+        pg_sql = re.sub(r"\?", replace_q, sql)
+
+        # 检测 INSERT 语句，自动追加 RETURNING id
         is_insert = pg_sql.strip().upper().startswith("INSERT")
         if is_insert and "RETURNING" not in pg_sql.upper():
             pg_sql = pg_sql.rstrip(";") + " RETURNING id"
-        result = self._connection.execute(pg_sql, params or ())
+
+        # 将 tuple/list 参数转为 dict（SQLAlchemy 2.0 要求）
+        if params is None or (isinstance(params, (list, tuple)) and len(params) == 0):
+            exec_params = {}
+        elif isinstance(params, (list, tuple)):
+            exec_params = {f"p{i}": v for i, v in enumerate(params)}
+        elif isinstance(params, dict):
+            exec_params = params
+        else:
+            exec_params = {}
+
+        result = self._connection.execute(text(pg_sql), exec_params)
         if result.returns_rows:
             keys = tuple(result.keys())
             fetched = result.fetchall()
@@ -86,7 +107,6 @@ class PgCursor:
             self._keys = keys
             self._rows = rows
             self.rowcount = len(rows)
-            # 获取 lastrowid（来自 RETURNING id 或查询结果的 id 列）
             if fetched and 'id' in keys:
                 self.lastrowid = fetched[-1][keys.index('id')]
         else:
@@ -97,9 +117,16 @@ class PgCursor:
 
     def executemany(self, sql: str, params_list: List[Tuple]):
         """批量执行"""
-        pg_sql = sql.replace("?", "%s")
+        counter = [0]
+        def replace_q(m):
+            name = f"p{counter[0]}"
+            counter[0] += 1
+            return f":{name}"
+        pg_sql = re.sub(r"\?", replace_q, sql)
+
         for params in params_list:
-            self._connection.execute(pg_sql, params)
+            exec_params = {f"p{i}": v for i, v in enumerate(params)} if params else {}
+            self._connection.execute(text(pg_sql), exec_params)
         self.rowcount = len(params_list)
         return self
 
