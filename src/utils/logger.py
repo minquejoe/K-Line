@@ -45,19 +45,26 @@ def setup_logger(
     logger.addHandler(console_handler)
     
     # 文件处理器（带日志轮转）
+    # 文件写入可能因权限问题失败（如 Docker volume 挂载），此时优雅降级为仅控制台输出
     if log_file or settings.LOG_FILE_PATH:
-        file_path = Path(log_file) if log_file else settings.LOG_FILE_PATH
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        file_handler = RotatingFileHandler(
-            file_path,
-            maxBytes=10 * 1024 * 1024,  # 10MB
-            backupCount=5,
-            encoding="utf-8",
-        )
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+        try:
+            file_path = Path(log_file) if log_file else settings.LOG_FILE_PATH
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            file_handler = RotatingFileHandler(
+                file_path,
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=5,
+                encoding="utf-8",
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+        except (PermissionError, OSError) as e:
+            logger.warning(
+                "无法创建日志文件 %s: %s，仅使用控制台输出",
+                log_file or settings.LOG_FILE_PATH, e,
+            )
     
     return logger
 

@@ -35,8 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN groupadd -r kline && useradd -r -g kline -d /app -s /sbin/nologin kline
+# Create non-root user with fixed UID/GID matching common host user (1000)
+RUN groupadd -g 1000 kline && useradd -u 1000 -g 1000 -d /app -s /sbin/nologin kline
 
 # Copy Python packages from builder
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
