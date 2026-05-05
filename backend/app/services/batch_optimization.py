@@ -2,8 +2,8 @@
 
 对自选股列表批量执行参数优化 + 权重优化，并行执行。
 双层PSO架构：
-  第1层 — 每个策略的参数优化（已有）
-  第2层 — 多策略聚合权重优化（新增）
+  第1层 — 每个策略的参数优化（ProcessPool 并行）
+  第2层 — 多策略聚合权重优化（单进程）
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -77,6 +77,62 @@ class ProgressReport:
     elapsed_seconds: float = 0
 
 
+# ══════════════════════════════════════════════════════════════
+#  ProcessPool Worker — 模块级函数，供 Pickle 序列化后多进程执行
+# ══════════════════════════════════════════════════════════════
+
+def _optimize_strategy_worker(
+    strategy_name: str,
+    stock_code: str,
+    data: pd.DataFrame,
+    num_particles: int,
+    max_iter: int,
+) -> OptimizationResult:
+    """单个策略的 PSO 优化（独立进程运行）"""
+    try:
+        manager = StrategyManager()
+        strategy = manager.get_strategy(strategy_name)
+        if strategy is None:
+            return OptimizationResult(
+                strategy_name=strategy_name, stock_code=stock_code,
+                optimal_params={}, best_score=0, target_metric="sharpe_ratio",
+                elapsed_seconds=0, error=f"策略未找到",
+            )
+
+        bounds = strategy.get_param_bounds()
+        if not bounds:
+            result_df = strategy.analyze(data)
+            stats = StrategyStatistics.calculate_statistics(data, result_df)
+            return OptimizationResult(
+                strategy_name=strategy_name, stock_code=stock_code,
+                optimal_params={},
+                best_score=stats.get("sharpe_ratio", 0) or 0,
+                target_metric="sharpe_ratio", elapsed_seconds=0,
+            )
+
+        import time
+        t0 = time.time()
+        optimizer = Optimizer(strategy_name, data)
+        opt_result = optimizer.optimize_pso(
+            param_bounds=bounds, num_particles=num_particles,
+            max_iter=max_iter, target_metric="sharpe_ratio",
+        )
+        elapsed = time.time() - t0
+
+        return OptimizationResult(
+            strategy_name=strategy_name, stock_code=stock_code,
+            optimal_params=opt_result.get("best_params", {}),
+            best_score=opt_result.get("best_score", 0) or 0,
+            target_metric="sharpe_ratio", elapsed_seconds=elapsed,
+        )
+    except Exception:
+        return OptimizationResult(
+            strategy_name=strategy_name, stock_code=stock_code,
+            optimal_params={}, best_score=0, target_metric="sharpe_ratio",
+            elapsed_seconds=0, error=traceback.format_exc(),
+        )
+
+
 class BatchOptimizer:
     """批量优化执行器"""
 
@@ -86,9 +142,8 @@ class BatchOptimizer:
     WEIGHT_PSO_PARTICLES = 10
     WEIGHT_PSO_ITERATIONS = 30
 
-    # 并行度
-    # 并行度：自动检测CPU核心数，上限4（给系统留余量）
-    MAX_WORKERS = min((os.cpu_count() or 4) - 1, 4)
+    # 并行度：自动检测CPU核心数（预留1核给系统），可通过环境变量 BATCH_WORKERS 覆盖
+    MAX_WORKERS = int(os.getenv("BATCH_WORKERS", min((os.cpu_count() or 4) - 1, 4)))
 
     # 回溯窗口（月）
     LOOKBACK_MONTHS = 6
@@ -213,71 +268,59 @@ class BatchOptimizer:
 
         return result
 
-    # ────────── 第1层：参数优化 ──────────
+    # ────────── 第1层：策略级并行（ProcessPool） ──────────
 
     def _optimize_all_strategies(
         self, data: pd.DataFrame, stock_code: str, strategy_names: List[str]
     ) -> List[OptimizationResult]:
-        """对单只股票的所有策略执行参数优化"""
-        results = []
+        """对单只股票的所有策略执行参数优化（多进程并行）"""
         total = len(strategy_names)
-        for idx, sname in enumerate(strategy_names):
-            self.progress.strategy_index = idx + 1
-            self.progress.strategy_name = sname
-            if self._progress_callback:
-                self._progress_callback(self.progress)
+        if total == 0:
+            return []
 
-            try:
-                strategy = self.strategy_manager.get_strategy(sname)
-                if strategy is None:
-                    continue
+        # 确定进程数（不超过策略数，不超过 CPU 核数-1，最少1）
+        max_workers = min(self.MAX_WORKERS, total)
+        logger.info(f"[{stock_code}] 策略并行优化: {total} 个策略, {max_workers} 进程")
 
-                bounds = strategy.get_param_bounds()
-                if not bounds:
-                    # 无参数策略，用默认参数跑一次即可
-                    result_df = strategy.analyze(data)
-                    stats = self.statistics.calculate_statistics(data, result_df)
+        results: List[OptimizationResult] = []
+        completed = 0
+
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+            for sname in strategy_names:
+                fut = executor.submit(
+                    _optimize_strategy_worker,
+                    sname,
+                    stock_code,
+                    data,
+                    self.PARAM_PSO_PARTICLES,
+                    self.PARAM_PSO_ITERATIONS,
+                )
+                futures[fut] = sname
+
+            for fut in as_completed(futures):
+                sname = futures[fut]
+                completed += 1
+                try:
+                    result = fut.result()
+                    results.append(result)
+                except Exception as e:
+                    logger.warning(f"[{stock_code}] 策略 {sname} 进程异常: {e}")
                     results.append(OptimizationResult(
                         strategy_name=sname,
                         stock_code=stock_code,
                         optimal_params={},
-                        best_score=stats.get("sharpe_ratio", 0) or 0,
+                        best_score=0,
                         target_metric="sharpe_ratio",
                         elapsed_seconds=0,
+                        error=str(e),
                     ))
-                    continue
 
-                # PSO 参数优化
-                t0 = datetime.now()
-                optimizer = Optimizer(sname, data)
-                opt_result = optimizer.optimize_pso(
-                    param_bounds=bounds,
-                    num_particles=self.PARAM_PSO_PARTICLES,
-                    max_iter=self.PARAM_PSO_ITERATIONS,
-                    target_metric="sharpe_ratio",
-                )
-                elapsed = (datetime.now() - t0).total_seconds()
-
-                results.append(OptimizationResult(
-                    strategy_name=sname,
-                    stock_code=stock_code,
-                    optimal_params=opt_result.get("best_params", {}),
-                    best_score=opt_result.get("best_score", 0) or 0,
-                    target_metric="sharpe_ratio",
-                    elapsed_seconds=elapsed,
-                ))
-
-            except Exception as e:
-                logger.warning(f"[{stock_code}] 策略 {sname} 优化失败: {e}")
-                results.append(OptimizationResult(
-                    strategy_name=sname,
-                    stock_code=stock_code,
-                    optimal_params={},
-                    best_score=0,
-                    target_metric="sharpe_ratio",
-                    elapsed_seconds=0,
-                    error=str(e),
-                ))
+                # 更新进度
+                self.progress.strategy_index = completed
+                self.progress.strategy_name = sname
+                if self._progress_callback:
+                    self._progress_callback(self.progress)
 
         return results
 
