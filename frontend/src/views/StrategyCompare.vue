@@ -144,6 +144,28 @@
             <el-icon><Search /></el-icon>
             开始比较
           </el-button>
+          <el-dropdown trigger="click" @visible-change="(v:boolean) => v && fetchSchemes()"
+            style="margin-left: 6px">
+            <el-button :icon="FolderOpened" :loading="loadingSchemes">
+              加载优化方案<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <div style="min-width: 300px; max-height: 350px; overflow-y: auto;">
+                  <template v-if="savedSchemes.length > 0">
+                    <el-dropdown-item v-for="scheme in savedSchemes" :key="scheme.id"
+                      @click="loadScheme(scheme)">
+                      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <span style="flex: 1;">{{ scheme.name }}</span>
+                        <span v-if="scheme.stock_code" style="font-size: 12px; color: var(--el-text-color-placeholder);">{{ scheme.stock_code }}</span>
+                      </div>
+                    </el-dropdown-item>
+                  </template>
+                  <el-empty v-else description="暂无优化方案" :image-size="40" />
+                </div>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
@@ -440,12 +462,13 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Trophy, Download, Collection, Star, StarFilled, Setting, DataAnalysis } from '@element-plus/icons-vue'
+import { Search, Trophy, Download, Collection, Star, StarFilled, Setting, DataAnalysis, FolderOpened, ArrowDown } from '@element-plus/icons-vue'
 import { useDark } from '@vueuse/core'
 import { strategyAPI, type StrategyInfo, type StrategyCompareRequest, type StrategyCompareResponse } from '@/api/strategy'
 import { dataAPI } from '@/api/data'
 import { watchlistAPI, type WatchlistItem } from '@/api/watchlist'
 import { paramSetsAPI, type ParamSet } from '@/api/param-sets'
+import { aggregationSchemesAPI, type AggregationScheme } from '@/api/aggregation-schemes'
 import KlineChart, { type ChartData, type Marker, type LineData } from '@/components/KlineChart.vue'
 
 const router = useRouter()
@@ -473,6 +496,10 @@ const compareForm = reactive<StrategyCompareRequest>({
 const strategyParamsMap = reactive<Record<string, Record<string, any>>>({})
 const loadingParamSets = ref<Record<string, boolean>>({})
 const availableParamSets = ref<Record<string, ParamSet[]>>({})
+
+// 聚合方案加载
+const savedSchemes = ref<AggregationScheme[]>([])
+const loadingSchemes = ref(false)
 
 // 日期快捷选项
 const dateShortcuts = [
@@ -837,7 +864,64 @@ const handleReset = () => {
   compareForm.start_date = start.toISOString().split('T')[0]
 }
 
+// ── 加载聚合方案 ──
+const fetchSchemes = async () => {
+  loadingSchemes.value = true
+  try {
+    savedSchemes.value = await aggregationSchemesAPI.getSchemes()
+  } catch (error) {
+    console.error('获取方案列表失败:', error)
+  } finally {
+    loadingSchemes.value = false
+  }
+}
 
+const loadScheme = (scheme: AggregationScheme) => {
+  // 1. 设置股票代码
+  if (scheme.stock_code) {
+    compareForm.stock_code = scheme.stock_code
+  }
+
+  // 2. 设置策略名称和参数
+  if (scheme.strategies && Array.isArray(scheme.strategies) && scheme.strategies.length >= 2) {
+    const names: string[] = []
+    for (const s of scheme.strategies) {
+      names.push(s.name)
+      // 设置策略参数（从聚合方案加载的参数覆盖默认参数）
+      if (!strategyParamsMap[s.name]) {
+        strategyParamsMap[s.name] = {}
+      }
+      if (s.params && typeof s.params === 'object') {
+        Object.assign(strategyParamsMap[s.name], s.params)
+      }
+    }
+    compareForm.strategy_names = names
+  } else if (scheme.weights && Array.isArray(scheme.weights)) {
+    // 向后兼容：从 weights 字段提取策略名
+    const names: string[] = []
+    for (const w of scheme.weights) {
+      if (typeof w === 'string') {
+        names.push(w)
+      }
+    }
+    if (names.length >= 2) {
+      compareForm.strategy_names = names
+    }
+  }
+
+  // 3. 设置日期范围（最近6个月）
+  const end = new Date()
+  const start = new Date()
+  start.setMonth(start.getMonth() - 6)
+  dateRange.value = [
+    start.toISOString().split('T')[0],
+    end.toISOString().split('T')[0]
+  ]
+  compareForm.start_date = start.toISOString().split('T')[0]
+  compareForm.end_date = end.toISOString().split('T')[0]
+
+  ElMessage.success(`已加载方案: ${scheme.name}，点击"开始比较"进行分析`)
+}
 
 // 加载保存的参数
 const loadSavedParams = async (strategyName: string) => {
