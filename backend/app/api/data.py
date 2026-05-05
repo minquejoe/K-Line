@@ -33,16 +33,21 @@ async def get_stock_list(
     管理员请使用 /api/data/admin/refresh-stock-list 来更新股票列表
     """
     try:
+        import numpy as np
         # 普通用户只能从数据库读取，不使用 force_from_api
         df = data_service.get_stock_list(market=market, force_from_api=False)
+        df = df.where(pd.notna(df), None)  # NaN → None
         
         stocks = []
         for _, row in df.iterrows():
+            latest = row.get("latest_date")
+            if latest is not None and not isinstance(latest, str):
+                latest = str(latest)
             stocks.append(StockInfo(
-                code=row["code"],
-                name=row["name"],
-                market=row.get("market", "other"),
-                latest_date=row.get("latest_date"),
+                code=str(row["code"]),
+                name=str(row["name"]),
+                market=str(row.get("market", "other")),
+                latest_date=latest,
             ))
         
         return StockListResponse(stocks=stocks, total=len(stocks))
@@ -212,14 +217,18 @@ async def refresh_stock_list(
     try:
         # 强制从 API 获取
         df = data_service.get_stock_list(market=market, force_from_api=True)
+        df = df.where(pd.notna(df), None)
         
         stocks = []
         for _, row in df.iterrows():
+            latest = row.get("latest_date")
+            if latest is not None and not isinstance(latest, str):
+                latest = str(latest)
             stocks.append(StockInfo(
-                code=row["code"],
-                name=row["name"],
-                market=row.get("market", "other"),
-                latest_date=row.get("latest_date"),
+                code=str(row["code"]),
+                name=str(row["name"]),
+                market=str(row.get("market", "other")),
+                latest_date=latest,
             ))
         
         return StockListResponse(
