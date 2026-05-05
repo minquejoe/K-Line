@@ -26,10 +26,8 @@ class Settings:
     # 日志目录
     LOG_DIR: Path = BASE_DIR / "logs"
     
-    # 数据库配置
-    DATABASE_TYPE: str = os.getenv("DATABASE_TYPE", "postgresql")  # sqlite | postgresql
-    DATABASE_NAME: str = "kline.db"
-    DATABASE_PATH: Path = DATABASE_DIR / DATABASE_NAME
+    # 数据库配置（仅 PostgreSQL）
+    DATABASE_NAME: str = "kline"
 
     # PostgreSQL 配置
     DATABASE_URL: str = os.getenv(

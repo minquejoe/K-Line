@@ -5,7 +5,7 @@ set -e
 
 echo "[entrypoint] Starting K-Line Backend..."
 
-# Initialize database (tables created by PostgresStorage/SQLiteStorage)
+# Initialize database (tables created by PostgresStorage)
 python -c "
 from backend.app.dependencies import get_storage
 storage = get_storage()

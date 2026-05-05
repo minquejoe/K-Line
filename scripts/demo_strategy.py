@@ -9,7 +9,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import settings
-from src.data_storage import SQLiteStorage, DataExporter
+from src.data_storage.postgres_storage import PostgresStorage
+from src.data_storage.export import DataExporter
 from src.strategy import StrategyManager, BaseStrategy
 from src.utils.logger import setup_logger
 import pandas as pd
@@ -25,7 +26,7 @@ def demo_strategy_framework():
     
     # 初始化
     settings.init_directories()
-    storage = SQLiteStorage()
+    storage = PostgresStorage()
     strategy_manager = StrategyManager()
     
     # 列出所有已注册的策略

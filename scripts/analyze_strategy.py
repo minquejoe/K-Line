@@ -10,7 +10,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import settings
-from src.data_storage import SQLiteStorage
+from src.data_storage.postgres_storage import PostgresStorage
 from src.strategy import StrategyManager
 from src.strategy.statistics import StrategyStatistics
 from src.visualization import KLineChart
@@ -45,7 +45,7 @@ def analyze_strategy(
     
     # 初始化
     settings.init_directories()
-    storage = SQLiteStorage()
+    storage = PostgresStorage()
     strategy_manager = StrategyManager()
     
     # 检查策略是否存在

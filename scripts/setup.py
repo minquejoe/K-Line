@@ -8,7 +8,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import settings
-from src.data_storage import SQLiteStorage
+from src.data_storage.postgres_storage import PostgresStorage
 from src.utils.logger import setup_logger
 
 logger = setup_logger()
@@ -23,7 +23,7 @@ def main():
     logger.info("目录初始化完成")
     
     # 初始化数据库
-    storage = SQLiteStorage()
+    storage = PostgresStorage()
     logger.info("数据库初始化完成")
     
     logger.info("初始化完成！")

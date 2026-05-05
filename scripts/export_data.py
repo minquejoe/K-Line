@@ -9,7 +9,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import settings
-from src.data_storage import SQLiteStorage, DataExporter
+from src.data_storage.postgres_storage import PostgresStorage
+from src.data_storage.export import DataExporter
 from src.utils.logger import setup_logger
 from src.utils.date_utils import format_date, parse_date
 
@@ -35,7 +36,7 @@ def export_stock_data(
     
     # 初始化
     settings.init_directories()
-    storage = SQLiteStorage()
+    storage = PostgresStorage()
     
     # 获取数据
     df = storage.get_daily_data(stock_code, start_date, end_date)
@@ -71,7 +72,7 @@ def export_all_stocks(output_dir: str = ""):
     logger.info("开始导出所有股票的数据...")
     
     settings.init_directories()
-    storage = SQLiteStorage()
+    storage = PostgresStorage()
     exporter = DataExporter(output_dir=Path(output_dir) if output_dir else None)
     
     # 获取所有股票代码
@@ -119,7 +120,7 @@ def export_with_date_range(
     logger.info(f"按日期范围导出股票 {stock_code} 的数据: {start_date} ~ {end_date}")
     
     settings.init_directories()
-    storage = SQLiteStorage()
+    storage = PostgresStorage()
     
     # 获取数据
     df = storage.get_daily_data(stock_code, start_date, end_date)

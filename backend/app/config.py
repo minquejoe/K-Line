@@ -15,9 +15,7 @@ class Settings:
     # 项目根目录（相对于backend目录的父目录）
     BASE_DIR: Path = Path(__file__).parent.parent.parent
     
-    # 数据库配置
-    DATABASE_TYPE: str = os.getenv("DATABASE_TYPE", "postgresql")  # sqlite | postgresql
-    DATABASE_PATH: Path = Path(os.getenv("DATABASE_PATH")) if os.getenv("DATABASE_PATH") else BASE_DIR / "data" / "database" / "kline.db"
+    # 数据库配置（仅 PostgreSQL）
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         "postgresql://kline_user:kline_pass@localhost:5432/kline_db",

@@ -51,7 +51,6 @@ services:
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
-      - DATABASE_TYPE=${DATABASE_TYPE:-postgresql}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-kline_user}:${POSTGRES_PASSWORD:-kline_pass}@postgres:5432/${POSTGRES_DB:-kline_db}
       - TZ=Asia/Shanghai
     ports:

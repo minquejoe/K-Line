@@ -9,7 +9,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.config import settings
-from src.data_storage import SQLiteStorage
+from src.data_storage.postgres_storage import PostgresStorage
 from src.visualization import KLineChart
 from src.utils.logger import setup_logger
 from src.utils.date_utils import format_date, parse_date
@@ -40,7 +40,7 @@ def plot_kline(
     
     # 初始化
     settings.init_directories()
-    storage = SQLiteStorage()
+    storage = PostgresStorage()
     
     # 获取数据
     df = storage.get_daily_data(stock_code, start_date, end_date)
